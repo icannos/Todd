@@ -1,4 +1,4 @@
-from filters import EncoderBasedFilters
+from .filters import EncoderBasedFilters
 import torch
 from torch.utils.data import DataLoader
 from transformers.generation_utils import ModelOutput
