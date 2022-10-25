@@ -1,4 +1,4 @@
-from .filters import SequenceSoftMaxFilterBase
+from .basefilters import SequenceSoftMaxFilterBase
 import torch
 from transformers.generation_utils import ModelOutput
 

@@ -22,7 +22,7 @@ def mean_score_remove_padding(
     return scores * mask.float() / mask.sum(dim=-1).float()
 
 
-class Filter:
+class Filter(ABC):
     def __init__(self, threshold):
         """
         :param threshold: threshold to use for the filter
@@ -70,12 +70,12 @@ class Filter:
         return self.__class__.__name__
 
 
-class EncoderBasedFilters(Filter, ABC):
+class EncoderBasedFilters(Filter):
     def __init__(self, threshold):
         super().__init__(threshold)
 
 
-class DecoderBasedFilters(Filter, ABC):
+class DecoderBasedFilters(Filter):
     def __init__(self, threshold, mode: str = "input"):
         super().__init__(threshold)
         self.mode = mode
