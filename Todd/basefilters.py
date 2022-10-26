@@ -1,11 +1,7 @@
 from abc import ABC
-from typing import Optional
 
 import torch
-
-import transformers
 from transformers.generation_utils import ModelOutput
-from torch.utils.data import DataLoader
 
 
 def mean_score_remove_padding(
@@ -110,25 +106,25 @@ class DecoderBasedFilters(Filter):
 
 class LikelyhoodFilter(DecoderBasedFilters):
     """
-    Filters a batch of outputs based on the likelyhood of the first sequence returned for each input.
+    Filters a batch of output based on the likelyhood of the first sequence returned for each input.
     """
 
     def __init__(self, threshold: float = 0.9, mode="input"):
         super().__init__(threshold, mode=mode)
 
     def per_output_scores(
-        self, outputs: ModelOutput, num_return_sequences: int = 1
+        self, output: ModelOutput, num_return_sequences: int = 1
     ) -> torch.Tensor:
-        sequences_scores = outputs.sequences_scores
+        sequences_scores = output.sequences_scores
         sequences_scores = sequences_scores.view(-1, num_return_sequences)
 
         return sequences_scores
 
     def per_input_scores(
-        self, outputs: ModelOutput, num_return_sequences: int = 1
+        self, output: ModelOutput, num_return_sequences: int = 1
     ) -> torch.Tensor:
         # bs, num_return_sequences
-        per_output_scores = self.per_output_scores(outputs, num_return_sequences)
+        per_output_scores = self.per_output_scores(output.num_return_sequences)
 
         # todo: add option to change aggregation function
         # bs
@@ -188,33 +184,40 @@ class SequenceMSPFilter(SequenceSoftMaxFilterBase):
         threshold: float,
         temperature: float = 2.0,
         pad_token_id: int = 0,
-        return_scores: bool = False,
     ):
         super().__init__(threshold, temperature, pad_token_id)
-        self.return_scores = return_scores
 
     def per_token_scores(
         self,
-        outputs: ModelOutput,
+        output: ModelOutput,
         num_return_sequences: int = 1,
         num_beam: int = 1,
         batch_size: int = 1,
     ) -> torch.Tensor:
-        sequences = outputs.sequences_scores
-        probabilities = self.mk_probability(outputs.scores)
+        """
+        Returns OOD scores per generated token based on the probability distribution they have been generated from.
+        @param output: ModelOutput object.
+        @param num_return_sequences: number of sequences returned by the model.
+        @param num_beam: number of beams used by the model
+        @param batch_size: batch size used during generation.
+        @return: (batch_size, num_return_sequences, seq_len) tensor of scores.
+        """
+
+        sequences = output.sequences_scores
+        probabilities = self.mk_probability(output.scores)
         per_step_scores = torch.max(probabilities, dim=-1)
 
-        return per_step_scores
+        return per_step_scores.view(batch_size, num_return_sequences, -1)
 
     def per_output_scores(
         self,
-        outputs: ModelOutput,
+        output: ModelOutput,
         num_return_sequences: int = 1,
         num_beam: int = 1,
         batch_size: int = 1,
     ) -> torch.Tensor:
-        sequences = outputs.sequences_scores
-        probabilities = self.mk_probability(outputs.scores)
+        sequences = output.sequences_scores
+        probabilities = self.mk_probability(output.scores)
         per_step_scores = torch.max(probabilities, dim=-1)
 
         return self.aggregate_step_by_step_scores(

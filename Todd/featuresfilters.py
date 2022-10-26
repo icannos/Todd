@@ -1,10 +1,12 @@
-from .basefilters import EncoderBasedFilters
+from collections import defaultdict
+from pathlib import Path
+from typing import List, Tuple, Dict, Optional
+
 import torch
 from torch.utils.data import DataLoader
 from transformers.generation_utils import ModelOutput
-from collections import defaultdict
-from typing import List, Tuple, Dict, Optional
-from pathlib import Path
+
+from .basefilters import EncoderBasedFilters
 
 
 def extract_batch_embeddings(
@@ -70,7 +72,6 @@ class MahalanobisFilter(EncoderBasedFilters):
     def __init__(
         self,
         threshold: float,
-        return_scores: bool = False,
         pad_token_id: int = 0,
         layers: List[int] = (-1,),
     ):

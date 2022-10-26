@@ -1,6 +1,7 @@
-from .basefilters import SequenceSoftMaxFilterBase
 import torch
 from transformers.generation_utils import ModelOutput
+
+from .basefilters import SequenceSoftMaxFilterBase
 
 
 class SequenceRenyiNegFilter(SequenceSoftMaxFilterBase):
@@ -52,7 +53,7 @@ class SequenceRenyiNegFilter(SequenceSoftMaxFilterBase):
 
     def per_output_scores(
         self,
-        outputs: ModelOutput,
+        output: ModelOutput,
         num_return_sequences: int = 1,
         num_beam: int = 1,
         batch_size: int = 1,
@@ -61,7 +62,7 @@ class SequenceRenyiNegFilter(SequenceSoftMaxFilterBase):
         # aggregate the scores over the generated tokens
 
         per_step_scores = self.per_token_scores(
-            outputs, num_return_sequences, num_beam, batch_size
+            output, num_return_sequences, num_beam, batch_size
         )
 
         anomaly_scores = self.aggregate_step_by_step_scores(
