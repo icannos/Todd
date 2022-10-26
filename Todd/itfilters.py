@@ -21,7 +21,7 @@ class SequenceRenyiNegFilter(SequenceSoftMaxFilterBase):
         self.threshold = threshold
         self.alpha = alpha
 
-    def compute_scores(
+    def per_token_scores(
         self,
         output: ModelOutput,
         num_return_sequences: int = 1,
@@ -48,8 +48,22 @@ class SequenceRenyiNegFilter(SequenceSoftMaxFilterBase):
             torch.sum(U**self.alpha * probabilities ** (1 - self.alpha), dim=-1)
         ) / (self.alpha - 1)
 
+        return per_step_scores
+
+    def per_output_scores(
+        self,
+        outputs: ModelOutput,
+        num_return_sequences: int = 1,
+        num_beam: int = 1,
+        batch_size: int = 1,
+    ) -> torch.Tensor:
         # (batch_size, 1)
         # aggregate the scores over the generated tokens
+
+        per_step_scores = self.per_token_scores(
+            outputs, num_return_sequences, num_beam, batch_size
+        )
+
         anomaly_scores = self.aggregate_step_by_step_scores(
             output.sequences,
             per_step_scores,
