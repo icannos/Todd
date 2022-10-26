@@ -17,9 +17,6 @@ class SequenceRenyiNegFilter(SequenceSoftMaxFilterBase):
         pad_token_id: int = 0,
     ):
         super().__init__(threshold, temperature, pad_token_id)
-        self.pad_token_id = pad_token_id
-        self.temperature = temperature
-        self.threshold = threshold
         self.alpha = alpha
 
     def per_token_scores(
@@ -77,3 +74,30 @@ class SequenceRenyiNegFilter(SequenceSoftMaxFilterBase):
 
     def fit(self, *args, **kwargs):
         pass
+
+
+class BeamRenyiInformationProjection(SequenceSoftMaxFilterBase):
+    # todo: implement this
+    def per_output_scores(
+        self,
+        output: ModelOutput,
+        num_return_sequences: int = 1,
+        num_beams: int = 1,
+        batch_size: int = 1,
+    ) -> torch.Tensor:
+
+        # Retieve probability distribution over the vocabulary for all sequences
+        probabilities = self.mk_probability(torch.stack(output.scores))
+        # Get uniform distribution over the vocabulary
+        U = torch.ones_like(probabilities) / probabilities.shape[-1]
+
+        # (num_gen_tokens, batch_size*numbeam*numreturn, 1)
+        # Renyi divergence against the uniform distribution
+        per_step_scores = torch.log(
+            torch.sum(U**self.alpha * probabilities ** (1 - self.alpha), dim=-1)
+        ) / (self.alpha - 1)
+
+        # batch_size*num_beams*num_return_sequences, num_gen_tokens
+        per_step_scores = (
+            per_step_scores.squeeze(-1).transpose(0, 1).view(batch_size, num_beams, -1)
+        )
