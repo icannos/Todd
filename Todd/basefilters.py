@@ -1,4 +1,5 @@
 from abc import ABC
+from typing import TypeVar
 
 import torch
 from transformers.generation_utils import ModelOutput
@@ -64,6 +65,9 @@ class Filter(ABC):
 
     def __repr__(self):
         return self.__class__.__name__
+
+
+FilterType = TypeVar("FilterType", bound=Filter)
 
 
 class EncoderBasedFilters(Filter):

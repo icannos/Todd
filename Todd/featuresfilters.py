@@ -15,12 +15,12 @@ def extract_batch_embeddings(
     y: Optional[torch.Tensor] = None,
     layers: Optional[List[int]] = None,
     hidden_states="encoder_hidden_states",
-):
+) -> Dict[Tuple[int, int], List[torch.Tensor]]:
     if layers is None:
         layers = range(len(output[hidden_states]))
 
     if y is None:
-        y = torch.zeros(output[hidden_states].shape[0], dtype=torch.long)
+        y = torch.zeros(output[hidden_states][0].shape[0], dtype=torch.long)
 
     for layer in layers:
         # Retrieve the average embedding of the input sequence
@@ -30,11 +30,11 @@ def extract_batch_embeddings(
         for i in range(emb.shape[0]):
             per_layer_embeddings[(layer, y[i])].append(emb[i].detach().cpu())
 
-    return per_layer_embeddings
+    return per_layer_embeddings, y
 
 
 def extract_embeddings(
-    model, dataloader: DataLoader, layers: Optional[List[int]]
+    model, tokenizer, dataloader: DataLoader, layers: Optional[List[int]] = None
 ) -> Dict[Tuple[int, int], List[torch.Tensor]]:
     """
     Extract the embeddings of the input sequences. Not classified per class.
@@ -48,17 +48,20 @@ def extract_embeddings(
     with torch.no_grad():
         for batch in dataloader:
             # Retrieves hidden states from the model
-            output = model(
-                batch["input_ids"],
-                attention_mask=batch["attention_mask"],
-                return_dict=True,
+            inputs = tokenizer(
+                batch["source"], padding=True, truncation=True, return_tensors="pt"
+            )
+            output = model.generate(
+                **inputs,
+                return_dict_in_generate=True,
                 output_hidden_states=True,
+                output_scores=True,
             )
 
             per_layer_embeddings, y = extract_batch_embeddings(
                 per_layer_embeddings,
                 output,
-                layers,
+                layers=layers,
             )
 
     return per_layer_embeddings
