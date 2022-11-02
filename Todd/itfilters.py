@@ -15,8 +15,9 @@ class SequenceRenyiNegFilter(SequenceSoftMaxFilterBase):
         alpha: float = 1.5,
         temperature: float = 2.0,
         pad_token_id: int = 0,
+        mode="input",
     ):
-        super().__init__(threshold, temperature, pad_token_id)
+        super().__init__(threshold, temperature, pad_token_id, mode=mode)
         self.alpha = alpha
 
     def per_token_scores(
@@ -36,15 +37,17 @@ class SequenceRenyiNegFilter(SequenceSoftMaxFilterBase):
         # (num_gen_tokens, batch_size*numbeam*numreturn, vocab_size)
 
         # Retieve probability distribution over the vocabulary for all sequences
+        # We don't keep the first score since it gives information ont the SOS token
         probabilities = self.mk_probability(torch.stack(output.scores))
-        # Get uniform distribution over the vocabulary
-        U = torch.ones_like(probabilities) / probabilities.shape[-1]
 
         # (num_gen_tokens, batch_size*numbeam*numreturn, 1)
         # Renyi divergence against the uniform distribution
-        per_step_scores = torch.log(
-            torch.sum(U**self.alpha * probabilities ** (1 - self.alpha), dim=-1)
-        ) / (self.alpha - 1)
+        per_step_scores = torch.log(torch.pow(probabilities, self.alpha).sum(-1))
+
+        per_step_scores -= (self.alpha - 1) * torch.log(
+            torch.ones_like(per_step_scores) * probabilities.shape[-1]
+        )
+        probabilities *= 1 / (self.alpha - 1)
 
         return per_step_scores
 
@@ -61,6 +64,7 @@ class SequenceRenyiNegFilter(SequenceSoftMaxFilterBase):
         per_step_scores = self.per_token_scores(
             output, num_return_sequences, num_beam, batch_size
         )
+        per_step_scores = per_step_scores.transpose(0, 1)
 
         anomaly_scores = self.aggregate_step_by_step_scores(
             output.sequences,
@@ -70,6 +74,23 @@ class SequenceRenyiNegFilter(SequenceSoftMaxFilterBase):
             batch_size,
         )
 
+        return anomaly_scores
+
+    def per_input_scores(
+        self,
+        output: ModelOutput,
+        num_return_sequences: int = 1,
+        num_beam: int = 1,
+        batch_size: int = 1,
+    ) -> torch.Tensor:
+
+        # (batch_size, num_return)
+        per_output_scores = self.per_output_scores(
+            output, num_return_sequences, num_beam, batch_size
+        )
+
+        # (batch_size, 1)
+        anomaly_scores = per_output_scores.mean(-1)
         return anomaly_scores
 
     def fit(self, *args, **kwargs):
@@ -85,7 +106,6 @@ class BeamRenyiInformationProjection(SequenceSoftMaxFilterBase):
         num_beams: int = 1,
         batch_size: int = 1,
     ) -> torch.Tensor:
-
         # Retieve probability distribution over the vocabulary for all sequences
         probabilities = self.mk_probability(torch.stack(output.scores))
         # Get uniform distribution over the vocabulary

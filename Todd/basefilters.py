@@ -15,8 +15,15 @@ def mean_score_remove_padding(
     :param pad_token_id: id of the padding token
     :return: (*,) tensor of mean scores
     """
-    mask = sequences != pad_token_id
-    return scores * mask.float() / mask.sum(dim=-1).float()
+
+    # Todo: weird check
+    # Sometime scores and sequences gen size are different and i have no idea why
+    if sequences.shape[1] != scores.shape[1]:
+        mask = sequences[:, :-1] != pad_token_id
+    else:
+        mask = sequences != pad_token_id
+
+    return ((scores * mask.float()).sum(dim=-1) / mask.sum(dim=-1).float()).squeeze()
 
 
 class Filter(ABC):
@@ -137,9 +144,13 @@ class LikelyhoodFilter(DecoderBasedFilters):
 
 class SequenceSoftMaxFilterBase(DecoderBasedFilters):
     def __init__(
-        self, threshold: float, temperature: float = 2.0, pad_token_id: int = 0
+        self,
+        threshold: float,
+        temperature: float = 2.0,
+        pad_token_id: int = 0,
+        mode="input",
     ):
-        super().__init__(threshold)
+        super().__init__(threshold, mode=mode)
         self.pad_token_id = pad_token_id
         self.temperature = temperature
         self.threshold = threshold
@@ -164,15 +175,15 @@ class SequenceSoftMaxFilterBase(DecoderBasedFilters):
         :return: (batch_size, 1) tensor of aggregated scores
         """
         # (batch_size*numbeam*numreturn, nun_gen_steps)
-        per_step_scores = per_step_scores.squeeze_(-1).transpose_(0, 1)
+        per_step_scores = per_step_scores.squeeze(-1)
 
         # (batch_size*numbeam*numreturn, 1)
         anomaly_scores = mean_score_remove_padding(
             sequences, per_step_scores, self.pad_token_id
         )
 
-        # (batch_size, numbeam*numreturn)
-        anomaly_scores = anomaly_scores.view(batch_size, num_beam, num_return_sequences)
+        # (batch_size, numreturn)
+        anomaly_scores = anomaly_scores.view(batch_size, num_return_sequences)
 
         return anomaly_scores
 
@@ -207,7 +218,7 @@ class SequenceMSPFilter(SequenceSoftMaxFilterBase):
         @return: (batch_size, num_return_sequences, seq_len) tensor of scores.
         """
 
-        sequences = output.sequences_scores
+        sequences = output.sequences
         probabilities = self.mk_probability(output.scores)
         per_step_scores = torch.max(probabilities, dim=-1)
 
@@ -220,7 +231,7 @@ class SequenceMSPFilter(SequenceSoftMaxFilterBase):
         num_beam: int = 1,
         batch_size: int = 1,
     ) -> torch.Tensor:
-        sequences = output.sequences_scores
+        sequences = output.sequences
         probabilities = self.mk_probability(output.scores)
         per_step_scores = torch.max(probabilities, dim=-1)
 
