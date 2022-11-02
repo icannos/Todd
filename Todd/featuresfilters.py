@@ -15,7 +15,7 @@ def extract_batch_embeddings(
     y: Optional[torch.Tensor] = None,
     layers: Optional[List[int]] = None,
     hidden_states="encoder_hidden_states",
-) -> Dict[Tuple[int, int], List[torch.Tensor]]:
+) -> Tuple[Dict[Tuple[int, int], List[torch.Tensor]], torch.Tensor]:
     if layers is None:
         layers = range(len(output[hidden_states]))
 
@@ -28,23 +28,25 @@ def extract_batch_embeddings(
 
         # Append the embeddings to the list of embeddings for the layer
         for i in range(emb.shape[0]):
-            per_layer_embeddings[(layer, y[i])].append(emb[i].detach().cpu())
+            per_layer_embeddings[(layer, int(y[i]))].append(emb[i].detach().cpu())
 
     return per_layer_embeddings, y
 
 
 def extract_embeddings(
     model, tokenizer, dataloader: DataLoader, layers: Optional[List[int]] = None
-) -> Dict[Tuple[int, int], List[torch.Tensor]]:
+) -> Tuple[Dict[Tuple[int, int], List[torch.Tensor]], torch.Tensor]:
     """
     Extract the embeddings of the input sequences. Not classified per class.
     :param layers: List of layers to return. If None, return all layers.
     :param model: huggingface model
+    :param tokenizer: huggingface tokenizer
     :param dataloader: dataloader of the input sequences
     :return: a dictionary with the embeddings of the input sequences
     """
     per_layer_embeddings = defaultdict(list)
 
+    # Todo: take classes into account
     with torch.no_grad():
         for batch in dataloader:
             # Retrieves hidden states from the model
@@ -64,7 +66,7 @@ def extract_embeddings(
                 layers=layers,
             )
 
-    return per_layer_embeddings
+    return per_layer_embeddings, y
 
 
 class MahalanobisFilter(EncoderBasedFilters):
