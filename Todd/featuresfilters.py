@@ -1,6 +1,6 @@
 from collections import defaultdict
 from pathlib import Path
-from typing import List, Tuple, Dict, Optional
+from typing import List, Tuple, Dict, Optional, Iterable
 
 import torch
 from torch.utils.data import DataLoader
@@ -13,7 +13,7 @@ def extract_batch_embeddings(
     per_layer_embeddings,
     output,
     y: Optional[torch.Tensor] = None,
-    layers: Optional[List[int]] = None,
+    layers: Optional[Iterable[int]] = None,
     hidden_states="encoder_hidden_states",
 ) -> Tuple[Dict[Tuple[int, int], List[torch.Tensor]], torch.Tensor]:
     if layers is None:
@@ -87,26 +87,40 @@ class MahalanobisFilter(EncoderBasedFilters):
 
         self.accumulated_embeddings = defaultdict(list)
 
-    def accumulate(self, output: ModelOutput) -> None:
+    def accumulate(self, output: ModelOutput, y: Optional[List[int]] = None) -> None:
         """
         Accumulate the embeddings of the input sequences in the filter. To be used before fitting
         the filter with self.fit.
-        :param output: Model output
+        It is an encapsulation of extract_batch_embeddings / extract embeddings directly in the detector.
+        @param output: Model output
+        @param y: classes of the input sequences (used to build per class references)
         """
 
-        per_layer_embeddings = extract_batch_embeddings(
-            self.accumulated_embeddings,
-            output,
-            self.layers,
+        per_layer_embeddings, _ = extract_batch_embeddings(
+            per_layer_embeddings=self.accumulated_embeddings,
+            output=output,
+            layers=self.layers,
+            y=y,
         )
 
+        for key, ref_list in per_layer_embeddings.items():
+            self.accumulated_embeddings[key].extend(ref_list)
+
     def fit(
-        self, per_layer_embeddings: Dict[Tuple[int, int], List[torch.Tensor]], **kwargs
+        self,
+        per_layer_embeddings: Optional[
+            Dict[Tuple[int, int], List[torch.Tensor]]
+        ] = None,
+        **kwargs
     ):
         """
         Prepare the filter by computing necessary statistics on the reference dataset.
         :param per_layer_embeddings:
         """
+
+        if per_layer_embeddings is None:
+            per_layer_embeddings = self.accumulated_embeddings
+
         # Compute the means and covariance matrices of the embeddings
         self.means = {
             (layer, cl): torch.stack(per_layer_embeddings[(layer, cl)]).mean(dim=0)
@@ -129,7 +143,6 @@ class MahalanobisFilter(EncoderBasedFilters):
         """
         Compute the Mahalanobis distance of the first sequence returned for each input.
         :param output: output of the model
-        :param layer: layer to use
         :return: (*,) tensor of Mahalanobis distances
         """
         # Retrieve mean embedding of the input sequence
@@ -145,9 +158,11 @@ class MahalanobisFilter(EncoderBasedFilters):
             m = torch.bmm(delta[:, None, :], prod[:, :, None]).squeeze(-1).squeeze(-1)
             scores[layer].append(m)
 
+        _scores: Dict[int, torch.Tensor] = {}
         for layer, score in scores.items():
             stacked = torch.stack(score, dim=-1)
             v, _ = stacked.min(dim=-1)
-            scores[layer] = v
+            _scores[layer] = v
+        scores = _scores
 
-        return torch.stack([v for k, v in scores.items()], dim=-1).mean(dim=-1)
+        return torch.stack([v for _, v in scores.items()], dim=-1).median(dim=-1)
