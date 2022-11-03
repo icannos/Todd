@@ -5,6 +5,24 @@ import torch
 from transformers.generation_utils import ModelOutput
 
 
+def mask_pad_tokens(
+    sequences: torch.Tensor, scores: torch.Tensor, pad_token_id: int
+) -> torch.Tensor:
+    """
+    Creates a mask for the padding tokens in a sequence of tokens.
+    :param sequences: (*, seq_len) tensor of token ids
+    :param pad_token_id: id of the padding token
+    :return: (*, seq_len) tensor of 0s and 1s
+    """
+
+    if sequences.shape[1] != scores.shape[1]:
+        mask = sequences[:, :-1] != pad_token_id
+    else:
+        mask = sequences != pad_token_id
+
+    return mask
+
+
 def mean_score_remove_padding(
     sequences: torch.Tensor, scores: torch.Tensor, pad_token_id: int
 ) -> torch.Tensor:
@@ -18,10 +36,7 @@ def mean_score_remove_padding(
 
     # Todo: weird check
     # Sometime scores and sequences gen size are different and i have no idea why
-    if sequences.shape[1] != scores.shape[1]:
-        mask = sequences[:, :-1] != pad_token_id
-    else:
-        mask = sequences != pad_token_id
+    mask = mask_pad_tokens(sequences, scores, pad_token_id)
 
     return ((scores * mask.float()).sum(dim=-1) / mask.sum(dim=-1).float()).squeeze()
 

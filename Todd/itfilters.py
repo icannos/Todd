@@ -1,7 +1,9 @@
+from abc import ABC
+
 import torch
 from transformers.generation_utils import ModelOutput
 
-from .basefilters import SequenceSoftMaxFilterBase
+from .basefilters import SequenceSoftMaxFilterBase, mask_pad_tokens
 
 
 class SequenceRenyiNegFilter(SequenceSoftMaxFilterBase):
@@ -83,7 +85,6 @@ class SequenceRenyiNegFilter(SequenceSoftMaxFilterBase):
         num_beam: int = 1,
         batch_size: int = 1,
     ) -> torch.Tensor:
-
         # (batch_size, num_return)
         per_output_scores = self.per_output_scores(
             output, num_return_sequences, num_beam, batch_size
@@ -98,7 +99,17 @@ class SequenceRenyiNegFilter(SequenceSoftMaxFilterBase):
 
 
 class BeamRenyiInformationProjection(SequenceSoftMaxFilterBase):
-    # todo: implement this
+    def __init__(
+        self,
+        threshold: float,
+        alpha: float = 1.5,
+        temperature: float = 2.0,
+        pad_token_id: int = 0,
+        mode="input",
+    ):
+        super().__init__(threshold, temperature, pad_token_id, mode=mode)
+        self.alpha = alpha
+
     def per_output_scores(
         self,
         output: ModelOutput,
@@ -107,17 +118,40 @@ class BeamRenyiInformationProjection(SequenceSoftMaxFilterBase):
         batch_size: int = 1,
     ) -> torch.Tensor:
         # Retieve probability distribution over the vocabulary for all sequences
+
+        # [len_gen, batch_size*numreturn, vocab_size]
         probabilities = self.mk_probability(torch.stack(output.scores))
-        # Get uniform distribution over the vocabulary
-        U = torch.ones_like(probabilities) / probabilities.shape[-1]
 
-        # (num_gen_tokens, batch_size*numbeam*numreturn, 1)
-        # Renyi divergence against the uniform distribution
-        per_step_scores = torch.log(
-            torch.sum(U**self.alpha * probabilities ** (1 - self.alpha), dim=-1)
-        ) / (self.alpha - 1)
+        # [batch_size*numreturn, len_gen, vocab_size]
+        probabilities = probabilities.transpose(0, 1)
 
-        # batch_size*num_beams*num_return_sequences, num_gen_tokens
-        per_step_scores = (
-            per_step_scores.squeeze(-1).transpose(0, 1).view(batch_size, num_beams, -1)
-        )
+        mask = mask_pad_tokens(output.sequences, probabilities, self.pad_token_id)
+        prob_types = (probabilities * mask[:, :, None]).sum(1) / mask.sum(-1)[:, None]
+
+        # [batch_size, numreturn, vocab_size]
+        prob_types = prob_types.view(batch_size, num_return_sequences, -1)
+
+        # Todo: check if this is correct
+        # Does it return the pair a pair distances
+        numerator = torch.pow(prob_types[:, :, None, :], self.alpha)
+        denominator = torch.pow(prob_types[:, None, :, :] + 1e-20, self.alpha - 1)
+
+        summation = (numerator / denominator).sum(-1)
+        dd = (1 / (self.alpha - 1)) * torch.log(summation)
+
+        dd += torch.diag(torch.inf * torch.ones(dd.shape[1]))[None, :, :]
+        scores, _ = dd.min(dim=2)
+
+        return scores
+
+    def accumulate(self, *args, **kwargs):
+        pass
+
+    def fit(self, *args, **kwargs):
+        pass
+
+    def per_input_scores(self, *args, **kwargs) -> torch.Tensor:
+        pass
+
+    def per_token_scores(self, *args, **kwargs) -> torch.Tensor:
+        pass
