@@ -1,5 +1,3 @@
-from abc import ABC
-
 import torch
 from transformers.generation_utils import ModelOutput
 
@@ -106,8 +104,10 @@ class BeamRenyiInformationProjection(SequenceSoftMaxFilterBase):
         temperature: float = 2.0,
         pad_token_id: int = 0,
         mode="input",
+        use_soft_projection=False,
     ):
         super().__init__(threshold, temperature, pad_token_id, mode=mode)
+        self.use_soft_projection = use_soft_projection
         self.alpha = alpha
 
     def per_output_scores(
@@ -131,6 +131,12 @@ class BeamRenyiInformationProjection(SequenceSoftMaxFilterBase):
         # [batch_size, numreturn, vocab_size]
         prob_types = prob_types.view(batch_size, num_return_sequences, -1)
 
+        # [batch_size, numreturn]
+        scores = self.projection_function(prob_types)
+
+        return scores
+
+    def projection_function(self, prob_types):
         # Returns the pair a pair divergence between types of the sequence in the beam
         # Broadcasting is used to do it in one line
         numerator = torch.pow(prob_types[:, :, None, :], self.alpha)
@@ -143,7 +149,6 @@ class BeamRenyiInformationProjection(SequenceSoftMaxFilterBase):
         # So we set it to inf to avoid it
         dd += torch.diag(torch.inf * torch.ones(dd.shape[1]))[None, :, :]
         scores, _ = dd.min(dim=2)
-
         return scores
 
     def accumulate(self, *args, **kwargs):
