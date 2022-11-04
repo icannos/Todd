@@ -105,9 +105,12 @@ class BeamRenyiInformationProjection(SequenceSoftMaxFilterBase):
         pad_token_id: int = 0,
         mode="input",
         use_soft_projection=False,
+        n_neighbors=-1,
     ):
         super().__init__(threshold, temperature, pad_token_id, mode=mode)
+        self.n_neighbors = n_neighbors
         self.use_soft_projection = use_soft_projection
+
         self.alpha = alpha
 
     def per_output_scores(
@@ -147,8 +150,24 @@ class BeamRenyiInformationProjection(SequenceSoftMaxFilterBase):
         # We are interested in the projection of each elemen onto the set of other elements
         # Obviously the min would be 0 on the diagonal since the projection of an element onto itself is 0
         # So we set it to inf to avoid it
+
         dd += torch.diag(torch.inf * torch.ones(dd.shape[1]))[None, :, :]
-        scores, _ = dd.min(dim=2)
+
+        if self.use_soft_projection:
+            # We use the soft projection
+            # We compute the mean divergence of the n_neighbors nearest neighbors of each element
+            if self.n_neighbors == -1:
+                n_neighbors = dd.shape[1] - 1
+            else:
+                n_neighbors = self.n_neighbors
+
+            scores, _ = torch.topk(dd, k=n_neighbors, dim=-1, largest=False)
+            scores = scores.mean(-1)
+        else:
+            # Otherwise we use the hard projection
+            # We just take the divergence with the closest neighbor
+            scores, _ = dd.min(dim=2)
+
         return scores
 
     def accumulate(self, *args, **kwargs):
