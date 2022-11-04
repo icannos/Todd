@@ -131,14 +131,16 @@ class BeamRenyiInformationProjection(SequenceSoftMaxFilterBase):
         # [batch_size, numreturn, vocab_size]
         prob_types = prob_types.view(batch_size, num_return_sequences, -1)
 
-        # Todo: check if this is correct
-        # Does it return the pair a pair distances
+        # Returns the pair a pair divergence between types of the sequence in the beam
+        # Broadcasting is used to do it in one line
         numerator = torch.pow(prob_types[:, :, None, :], self.alpha)
         denominator = torch.pow(prob_types[:, None, :, :] + 1e-20, self.alpha - 1)
-
         summation = (numerator / denominator).sum(-1)
         dd = (1 / (self.alpha - 1)) * torch.log(summation)
 
+        # We are interested in the projection of each elemen onto the set of other elements
+        # Obviously the min would be 0 on the diagonal since the projection of an element onto itself is 0
+        # So we set it to inf to avoid it
         dd += torch.diag(torch.inf * torch.ones(dd.shape[1]))[None, :, :]
         scores, _ = dd.min(dim=2)
 
@@ -150,8 +152,19 @@ class BeamRenyiInformationProjection(SequenceSoftMaxFilterBase):
     def fit(self, *args, **kwargs):
         pass
 
-    def per_input_scores(self, *args, **kwargs) -> torch.Tensor:
-        pass
+    def per_input_scores(
+        self,
+        output: ModelOutput,
+        num_return_sequences: int = 1,
+        num_beams: int = 1,
+        batch_size: int = 1,
+    ) -> torch.Tensor:
+
+        per_output_scores = self.per_output_scores(
+            output, num_return_sequences, num_beams, batch_size
+        )
+
+        return per_output_scores.mean(-1)
 
     def per_token_scores(self, *args, **kwargs) -> torch.Tensor:
-        pass
+        raise NotImplementedError("This method makes no sense for this filter")
