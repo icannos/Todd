@@ -24,4 +24,38 @@ pip install todd
 ```
 
 
+## Examples
+
+Different examples are provided in the `examples` folder.
+
+### OOD Detection with Mahalanobis Distance
+ 
+```python
+
+# Extract features from the reference set
+ref_embeddings, _ = extract_embeddings(model, tokenizer, in_val_loader, layers=[6])
+
+# Initialize the Mahalanobis detector
+maha_detector = MahalanobisFilter(threshold=3200, layers=[6])
+# Fit the detector with the reference set
+maha_detector.fit(ref_embeddings)
+
+with torch.no_grad():
+    for batch in loader:
+        inputs = tokenizer(
+            batch["source"], padding=True, truncation=True, return_tensors="pt"
+        )
+        output = model.generate(
+            **inputs,
+            return_dict_in_generate=True,
+            output_hidden_states=True,
+            output_scores=True,
+        )
+
+        print(maha_detector(output)) 
+        # Output a mask of the same size as the batch
+        # True means the input is In-Distribution (ie to be kept) and False means OOD
+```
+
+
 ## API
