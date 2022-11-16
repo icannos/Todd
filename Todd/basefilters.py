@@ -15,6 +15,8 @@ def mask_pad_tokens(
     :return: (*, seq_len) tensor of 0s and 1s
     """
 
+    # Todo: weird check
+    # Sometime scores and sequences gen size are different and i have no idea why
     if sequences.shape[1] != scores.shape[1]:
         mask = sequences[:, :-1] != pad_token_id
     else:
@@ -34,8 +36,6 @@ def mean_score_remove_padding(
     :return: (*,) tensor of mean scores
     """
 
-    # Todo: weird check
-    # Sometime scores and sequences gen size are different and i have no idea why
     mask = mask_pad_tokens(sequences, scores, pad_token_id)
 
     return ((scores * mask.float()).sum(dim=-1) / mask.sum(dim=-1).float()).squeeze()
