@@ -61,10 +61,10 @@ class Filter(ABC):
         return scores >= 0
 
     def fit(self, *args, **kwargs):
-        raise NotImplementedError
+        pass
 
     def accumulate(self, *args, **kwargs):
-        raise NotImplementedError
+        pass
 
     def decision_function(self, *args, **kwargs) -> torch.Tensor:
         """
