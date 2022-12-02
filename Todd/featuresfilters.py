@@ -126,12 +126,12 @@ class MahalanobisFilter(EncoderBasedFilters):
         self.means = {
             (layer, cl): torch.stack(per_layer_embeddings[(layer, cl)]).mean(dim=0)
             for layer, cl in per_layer_embeddings.keys()
-            if layer in self.layers
+            if -1 in self.layers or layer in self.layers
         }
         self.covs = {
             (layer, cl): torch.stack(per_layer_embeddings[(layer, cl)], dim=1).cov()
             for layer, cl in per_layer_embeddings.keys()
-            if layer in self.layers
+            if -1 in self.layers or layer in self.layers
         }
 
     def dump_filter(self, path: Path):
@@ -178,6 +178,20 @@ class MahalanobisFilter(EncoderBasedFilters):
         scores = torch.stack([scores[(layer, cl)] for layer, cl in scores.keys()]).min(
             dim=0
         )[0]
+
+        return scores
+
+    def compute_scores_benchmark(
+        self, output: ModelOutput
+    ) -> Dict[Tuple[int, int], torch.Tensor]:
+        """
+        Compute the Mahalanobis distance of the first sequence returned for each input.
+        :param output: output of the model
+        :return: (*,) tensor of Mahalanobis distances
+        """
+
+        scores = self.compute_per_layer_per_class_distances(output)
+        scores = {f"{layer}_{cl}": scores[(layer, cl)] for layer, cl in scores.keys()}
 
         return scores
 
