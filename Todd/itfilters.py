@@ -95,6 +95,9 @@ class SequenceRenyiNegFilter(SequenceSoftMaxFilterBase):
     def fit(self, *args, **kwargs):
         pass
 
+    def __format__(self, format_spec):
+        return f"RenyiNegFilter(alpha={self.alpha}, temperature={self.temperature}, mode={self.mode})"
+
 
 class BeamRenyiInformationProjection(SequenceSoftMaxFilterBase):
     def __init__(
@@ -192,3 +195,6 @@ class BeamRenyiInformationProjection(SequenceSoftMaxFilterBase):
 
     def per_token_scores(self, *args, **kwargs) -> torch.Tensor:
         raise NotImplementedError("This method makes no sense for this filter")
+
+    def __format__(self, format_spec):
+        return f"BeamRenyiInformationProjection(alpha={self.alpha}, use_soft_projection={self.use_soft_projection}, n_neighbors={self.n_neighbors})"
