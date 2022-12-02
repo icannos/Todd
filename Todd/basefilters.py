@@ -88,6 +88,9 @@ class Filter(ABC):
     def __repr__(self):
         return self.__class__.__name__
 
+    def __format__(self, format_spec):
+        return self.__repr__()
+
 
 FilterType = TypeVar("FilterType", bound=Filter)
 
@@ -156,6 +159,9 @@ class LikelyhoodFilter(DecoderBasedFilters):
         # bs
         return per_output_scores[:, 0]
 
+    def __format__(self, format_spec):
+        return f"{self.__class__.__name__}(mode={self.mode})"
+
 
 class SequenceSoftMaxFilterBase(DecoderBasedFilters):
     def __init__(
@@ -214,8 +220,9 @@ class SequenceMSPFilter(SequenceSoftMaxFilterBase):
         threshold: float,
         temperature: float = 2.0,
         pad_token_id: int = 0,
+        mode="input",
     ):
-        super().__init__(threshold, temperature, pad_token_id)
+        super().__init__(threshold, temperature, pad_token_id, mode=mode)
 
     def per_token_scores(
         self,
@@ -253,3 +260,6 @@ class SequenceMSPFilter(SequenceSoftMaxFilterBase):
         return self.aggregate_step_by_step_scores(
             sequences, per_step_scores, num_return_sequences, num_beam, batch_size
         )
+
+    def __format__(self, format_spec):
+        return f"{self.__class__.__name__}(mode={self.mode}, temperature={self.temperature}, mode={self.mode})"

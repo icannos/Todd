@@ -23,8 +23,9 @@ def extract_batch_embeddings(
         y = torch.zeros(output[hidden_states][0].shape[0], dtype=torch.long)
 
     for layer in layers:
-        # Retrieve the average embedding of the input sequence
-        emb = output[hidden_states][layer].mean(dim=1)
+        # We use the first token embedding as representation of the sequence for now
+        # It avoids the problem of the different length of the sequences when trying to take the average embedding
+        emb = output[hidden_states][layer][:, 0, ...]
 
         # Append the embeddings to the list of embeddings for the layer
         for i in range(emb.shape[0]):
@@ -111,7 +112,7 @@ class MahalanobisFilter(EncoderBasedFilters):
         per_layer_embeddings: Optional[
             Dict[Tuple[int, int], List[torch.Tensor]]
         ] = None,
-        **kwargs
+        **kwargs,
     ):
         """
         Prepare the filter by computing necessary statistics on the reference dataset.
@@ -139,30 +140,46 @@ class MahalanobisFilter(EncoderBasedFilters):
     def load_filter(self, path: Path):
         self.means, self.covs = torch.load(path)
 
+    def compute_per_layer_per_class_distances(
+        self, output: ModelOutput
+    ) -> Dict[Tuple[int, int], torch.Tensor]:
+        """
+
+        @param output: Huggingface model outputs with 'encoder_hidden_states'.
+        @return: Dictionary of distances per layer and per class. Tensor of shape (batch_size, )
+        """
+        scores: Dict[Tuple[int, int], torch.Tensor] = {}
+
+        for layer, cl in self.means.keys():
+            # We take only the first token embedding as representation of the sequence for now
+            # It avoids the problem of the different length of the sequences when trying to take the average embedding
+            # emb : (batch_size, embedding_size)
+            emb = output["encoder_hidden_states"][layer][:, 0, ...]
+            delta = emb - self.means[(layer, cl)]
+            cov = self.covs[(layer, cl)]
+
+            prod = torch.linalg.solve(cov[None, :, :], delta[:, :, None]).squeeze(-1)
+            m = torch.bmm(delta[:, None, :], prod[:, :, None]).squeeze(-1).squeeze(-1)
+
+            scores[(layer, cl)] = m
+
+        return scores
+
     def compute_scores(self, output: ModelOutput):
         """
         Compute the Mahalanobis distance of the first sequence returned for each input.
         :param output: output of the model
         :return: (*,) tensor of Mahalanobis distances
         """
-        # Retrieve mean embedding of the input sequence
 
-        scores = defaultdict(list)
+        scores = self.compute_per_layer_per_class_distances(output)
 
-        for layer, cl in self.means.keys():
-            emb = output["encoder_hidden_states"][layer].mean(dim=1)
-            delta = emb - self.means[(layer, cl)]
-            cov = self.covs[(layer, cl)]
+        # We take the minimum distance over all layers and classes
+        scores = torch.stack([scores[(layer, cl)] for layer, cl in scores.keys()]).min(
+            dim=0
+        )[0]
 
-            prod = torch.linalg.solve(cov[None, :, :], delta[:, :, None]).squeeze(-1)
-            m = torch.bmm(delta[:, None, :], prod[:, :, None]).squeeze(-1).squeeze(-1)
-            scores[layer].append(m)
+        return scores
 
-        _scores: Dict[int, torch.Tensor] = {}
-        for layer, score in scores.items():
-            stacked = torch.stack(score, dim=-1)
-            v, _ = stacked.min(dim=-1)
-            _scores[layer] = v
-        scores = _scores
-
-        return torch.stack([v for _, v in scores.items()], dim=-1).median(dim=-1)
+    def __format__(self, format_spec):
+        return f"MahalanobisFilter(layers={self.layers})"
