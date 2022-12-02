@@ -197,4 +197,8 @@ class BeamRenyiInformationProjection(SequenceSoftMaxFilterBase):
         raise NotImplementedError("This method makes no sense for this filter")
 
     def __format__(self, format_spec):
-        return f"BeamRenyiInformationProjection(alpha={self.alpha}, use_soft_projection={self.use_soft_projection}, n_neighbors={self.n_neighbors})"
+        return (
+            f"BeamRenyiInformationProjection(alpha={self.alpha}, "
+            f"use_soft_projection={self.use_soft_projection},"
+            f" n_neighbors={self.n_neighbors})"
+        )
