@@ -58,4 +58,9 @@ with torch.no_grad():
 ```
 
 
+## Todo:
+
+- [ ] Split filters and anomaly scorers
+- [ ] Add power means and cosines ood scores
+
 ## API
