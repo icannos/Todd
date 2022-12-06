@@ -175,6 +175,7 @@ class MahalanobisFilter(EncoderBasedFilters):
         scores = self.compute_per_layer_per_class_distances(output)
 
         # We take the minimum distance over all layers and classes
+        # Todo: Change this behavior: choose one particular layer or better aggregation
         scores = torch.stack([scores[(layer, cl)] for layer, cl in scores.keys()]).min(
             dim=0
         )[0]
@@ -197,3 +198,86 @@ class MahalanobisFilter(EncoderBasedFilters):
 
     def __format__(self, format_spec):
         return f"MahalanobisFilter(layers={self.layers})"
+
+
+class CosineProjectionScorer(EncoderBasedFilters):
+    def __init__(self, layers: List[int] = (-1,)):
+        super().__init__(threshold=0.0)
+
+        self.layers = set(layers)
+        self.accumulated_embeddings = defaultdict(list)
+
+    def accumulate(self, output: ModelOutput, y: Optional[List[int]] = None) -> None:
+
+        per_layer_embeddings, _ = extract_batch_embeddings(
+            per_layer_embeddings=self.accumulated_embeddings,
+            output=output,
+            layers=self.layers,
+            y=y,
+        )
+
+        for key, ref_list in per_layer_embeddings.items():
+            self.accumulated_embeddings[key].extend(ref_list)
+
+    def fit(self):
+        for key, ref_list in self.accumulated_embeddings.items():
+            self.accumulated_embeddings[key] = torch.stack(ref_list)
+
+    def compute_per_layer_per_class_disimilarity(
+        self, output: ModelOutput
+    ) -> Dict[Tuple[int, int], torch.Tensor]:
+        """
+
+        @param output: Huggingface model outputs with 'encoder_hidden_states'.
+        @return: Dictionary of distances per layer and per class. Tensor of shape (batch_size, )
+        """
+        scores: Dict[Tuple[int, int], torch.Tensor] = {}
+
+        for layer, cl in self.means.keys():
+            # We take only the first token embedding as representation of the sequence for now
+            # It avoids the problem of the different length of the sequences when trying to take the average embedding
+            # emb : (batch_size, embedding_size)
+            emb = output["encoder_hidden_states"][layer][:, 0, ...]
+
+            # Compute the cosine similarity between the embedding and the mean
+            cosine_scores = torch.nn.functional.cosine_similarity(
+                emb, self.accumulated_embeddings[(layer, cl)], dim=-1
+            )
+
+            # We take the min so it's an OOD score: larger => more OOD
+            scores[(layer, cl)] = -cosine_scores.max(dim=-1)[0]
+
+        return scores
+
+    def compute_scores(self, output: ModelOutput):
+        """
+        Compute the Mahalanobis distance of the first sequence returned for each input.
+        :param output: output of the model
+        :return: (*,) tensor of Mahalanobis distances
+        """
+
+        scores = self.compute_per_layer_per_class_disimilarity(output)
+
+        # We take the minimum score over the layer
+        # ie the score of the layer that is the less OOD
+        # And we decide that it's the OOD score of that sample
+        # Todo: Change this behavior: choose one particular layer or better aggregation
+        scores = torch.stack([scores[(layer, cl)] for layer, cl in scores.keys()]).min(
+            dim=0
+        )[0]
+
+        return scores
+
+    def compute_scores_benchmark(
+        self, output: ModelOutput
+    ) -> Dict[Tuple[int, int], torch.Tensor]:
+        """
+        Compute the Mahalanobis distance of the first sequence returned for each input.
+        :param output: output of the model
+        :return: (*,) tensor of Mahalanobis distances
+        """
+
+        scores = self.compute_per_layer_per_class_disimilarity(output)
+        scores = {f"{layer}_{cl}": scores[(layer, cl)] for layer, cl in scores.keys()}
+
+        return scores
