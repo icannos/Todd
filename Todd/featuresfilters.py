@@ -207,6 +207,8 @@ class CosineProjectionScorer(EncoderBasedFilters):
         self.layers = set(layers)
         self.accumulated_embeddings = defaultdict(list)
 
+        self.reference_embeddings: Dict[Tuple[int, int], Optional[torch.Tensor]] = None
+
     def accumulate(self, output: ModelOutput, y: Optional[List[int]] = None) -> None:
 
         per_layer_embeddings, _ = extract_batch_embeddings(
@@ -219,9 +221,21 @@ class CosineProjectionScorer(EncoderBasedFilters):
         for key, ref_list in per_layer_embeddings.items():
             self.accumulated_embeddings[key].extend(ref_list)
 
-    def fit(self):
-        for key, ref_list in self.accumulated_embeddings.items():
-            self.accumulated_embeddings[key] = torch.stack(ref_list)
+    def fit(
+        self,
+        per_layer_embeddings: Optional[
+            Dict[Tuple[int, int], List[torch.Tensor]]
+        ] = None,
+    ):
+
+        if per_layer_embeddings is None:
+            per_layer_embeddings = self.accumulated_embeddings
+
+        for key, ref_list in per_layer_embeddings.items():
+            self.reference_embeddings[key] = torch.stack(ref_list)
+
+        # free some space since we now have stored everything in the tensor
+        del self.accumulated_embeddings
 
     def compute_per_layer_per_class_disimilarity(
         self, output: ModelOutput
