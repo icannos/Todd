@@ -201,13 +201,13 @@ class MahalanobisFilter(EncoderBasedFilters):
 
 
 class CosineProjectionScorer(EncoderBasedFilters):
-    def __init__(self, layers: List[int] = (-1,)):
-        super().__init__(threshold=0.0)
+    def __init__(self, threshold=0, layers: List[int] = (-1,)):
+        super().__init__(threshold=threshold)
 
         self.layers = set(layers)
         self.accumulated_embeddings = defaultdict(list)
 
-        self.reference_embeddings: Dict[Tuple[int, int], Optional[torch.Tensor]] = None
+        self.reference_embeddings: Dict[Tuple[int, int], Optional[torch.Tensor]] = {}
 
     def accumulate(self, output: ModelOutput, y: Optional[List[int]] = None) -> None:
 
@@ -247,16 +247,16 @@ class CosineProjectionScorer(EncoderBasedFilters):
         """
         scores: Dict[Tuple[int, int], torch.Tensor] = {}
 
-        for layer, cl in self.means.keys():
+        for layer, cl in self.reference_embeddings.keys():
             # We take only the first token embedding as representation of the sequence for now
             # It avoids the problem of the different length of the sequences when trying to take the average embedding
             # emb : (batch_size, embedding_size)
             emb = output["encoder_hidden_states"][layer][:, 0, ...]
+            emb = emb[:, None, :]
+            ref = self.reference_embeddings[(layer, cl)][None, :, :]
 
             # Compute the cosine similarity between the embedding and the mean
-            cosine_scores = torch.nn.functional.cosine_similarity(
-                emb, self.accumulated_embeddings[(layer, cl)], dim=-1
-            )
+            cosine_scores = torch.nn.functional.cosine_similarity(emb, ref, dim=-1)
 
             # We take the min so it's an OOD score: larger => more OOD
             scores[(layer, cl)] = -cosine_scores.max(dim=-1)[0]
