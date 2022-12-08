@@ -18,6 +18,9 @@ def extract_batch_embeddings(
 ) -> Tuple[Dict[Tuple[int, int], List[torch.Tensor]], torch.Tensor]:
     if layers is None:
         layers = range(len(output[hidden_states]))
+    if layers is not None:
+        N_layers = len(output[hidden_states])
+        layers = [l if l >= 0 else N_layers + l for l in layers]
 
     if y is None:
         y = torch.zeros(output[hidden_states][0].shape[0], dtype=torch.long)
@@ -87,6 +90,7 @@ class MahalanobisFilter(EncoderBasedFilters):
         self.layers = set(layers)
 
         self.accumulated_embeddings = defaultdict(list)
+        self.score_names = []
 
     def accumulate(self, output: ModelOutput, y: Optional[List[int]] = None) -> None:
         """
@@ -133,6 +137,10 @@ class MahalanobisFilter(EncoderBasedFilters):
             for layer, cl in per_layer_embeddings.keys()
             if -1 in self.layers or layer in self.layers
         }
+
+        self.score_names = [
+            f"layer_{layer}_class_{cl}" for layer, cl in self.means.keys()
+        ]
 
     def dump_filter(self, path: Path):
         torch.save((self.means, self.covs), path)
@@ -192,7 +200,10 @@ class MahalanobisFilter(EncoderBasedFilters):
         """
 
         scores = self.compute_per_layer_per_class_distances(output)
-        scores = {f"{layer}_{cl}": scores[(layer, cl)] for layer, cl in scores.keys()}
+        scores = {
+            f"layer_{layer}_class_{cl}": scores[(layer, cl)]
+            for layer, cl in scores.keys()
+        }
 
         return scores
 
@@ -293,5 +304,5 @@ class CosineProjectionScorer(EncoderBasedFilters):
 
         scores = self.compute_per_layer_per_class_disimilarity(output)
         scores = {f"{layer}_{cl}": scores[(layer, cl)] for layer, cl in scores.keys()}
-
+        print(scores)
         return scores

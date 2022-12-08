@@ -1,5 +1,5 @@
 from abc import ABC
-from typing import TypeVar
+from typing import TypeVar, Dict, List, Union
 
 import torch
 from transformers.generation_utils import ModelOutput
@@ -48,6 +48,11 @@ class Filter(ABC):
         """
         self.threshold = threshold
 
+        # List of the scores computed by the filter
+        # List of keys returned in the compute_scores_benchmark method
+        # Can be empty if the filter returns a single score
+        self.score_names: List[str] = []
+
     def __call__(self, *args, **kwargs) -> torch.Tensor:
         return self.predict(*args, **kwargs)
 
@@ -82,6 +87,16 @@ class Filter(ABC):
     def compute_scores(self, *args, **kwargs) -> torch.Tensor:
         """
         Should return an anomaly score: a higher score means more likely to be an anomaly.
+        """
+        raise NotImplementedError
+
+    def compute_scores_benchmark(
+        self, output: ModelOutput
+    ) -> Union[Dict[str, torch.Tensor], torch.Tensor]:
+        """
+        Compute the scores of the output of the model.
+        :param output: output of the model
+        :return: dictionary of scores
         """
         raise NotImplementedError
 
