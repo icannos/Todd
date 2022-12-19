@@ -153,14 +153,13 @@ class LikelyhoodFilter(DecoderBasedFilters):
     Filters a batch of output based on the likelyhood of the first sequence returned for each input.
     """
 
-    def __init__(self, threshold: float = 0.9, mode="input"):
+    def __init__(self, threshold: float = 0.9, mode="input", num_return_sequences=1):
         super().__init__(threshold, mode=mode)
+        self.num_return_sequences = num_return_sequences
 
-    def per_output_scores(
-        self, output: ModelOutput, num_return_sequences: int = 1
-    ) -> torch.Tensor:
+    def per_output_scores(self, output: ModelOutput) -> torch.Tensor:
         sequences_scores = output.sequences_scores
-        sequences_scores = sequences_scores.view(-1, num_return_sequences)
+        sequences_scores = sequences_scores.view(-1, self.num_return_sequences)
 
         return sequences_scores
 
@@ -168,7 +167,7 @@ class LikelyhoodFilter(DecoderBasedFilters):
         self, output: ModelOutput, num_return_sequences: int = 1
     ) -> torch.Tensor:
         # bs, num_return_sequences
-        per_output_scores = self.per_output_scores(output.num_return_sequences)
+        per_output_scores = self.per_output_scores(output)
 
         # todo: add option to change aggregation function
         # bs
@@ -199,17 +198,16 @@ class SequenceSoftMaxFilterBase(DecoderBasedFilters):
         sequences: torch.Tensor,
         per_step_scores: torch.Tensor,
         num_return_sequences: int,
-        num_beam: int,
-        batch_size: int,
     ) -> torch.Tensor:
         """
         :param sequences: (batch_size*numreturn, seq_len) tensor of token ids
         :param per_step_scores: (batch_size*numreturn, seq_len) tensor of scores
         :param num_return_sequences: number of sequences returned by the model
-        :param num_beam: number of beams used by the model
-        :param batch_size: batch size
         :return: (batch_size, 1) tensor of aggregated scores
         """
+
+        batch_size = sequences.shape[0] // num_return_sequences
+
         # (batch_size*numbeam*numreturn, nun_gen_steps)
         per_step_scores = per_step_scores.squeeze(-1)
 
@@ -273,7 +271,7 @@ class SequenceMSPFilter(SequenceSoftMaxFilterBase):
         per_step_scores = torch.max(probabilities, dim=-1)
 
         return self.aggregate_step_by_step_scores(
-            sequences, per_step_scores, num_return_sequences, num_beam, batch_size
+            sequences, per_step_scores, num_return_sequences
         )
 
     def __format__(self, format_spec):

@@ -293,9 +293,7 @@ class CosineProjectionScorer(EncoderBasedFilters):
 
         return scores
 
-    def compute_scores_benchmark(
-        self, output: ModelOutput
-    ) -> Dict[Tuple[int, int], torch.Tensor]:
+    def compute_scores_benchmark(self, output: ModelOutput) -> Dict[str, torch.Tensor]:
         """
         Compute the Mahalanobis distance of the first sequence returned for each input.
         :param output: output of the model
@@ -304,5 +302,4 @@ class CosineProjectionScorer(EncoderBasedFilters):
 
         scores = self.compute_per_layer_per_class_disimilarity(output)
         scores = {f"{layer}_{cl}": scores[(layer, cl)] for layer, cl in scores.keys()}
-        print(scores)
         return scores

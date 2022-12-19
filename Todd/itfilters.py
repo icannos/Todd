@@ -1,3 +1,5 @@
+from typing import Dict, Tuple
+
 import torch
 from transformers.generation_utils import ModelOutput
 
@@ -16,16 +18,21 @@ class SequenceRenyiNegFilter(SequenceSoftMaxFilterBase):
         temperature: float = 2.0,
         pad_token_id: int = 0,
         mode="input",
+        num_return_sequences: int = 1,
+        num_beam: int = 1,
+        batch_size: int = 1,
     ):
         super().__init__(threshold, temperature, pad_token_id, mode=mode)
+        self.batch_size = batch_size
+        self.num_beam = num_beam
+        self.num_return_sequences = num_return_sequences
         self.alpha = alpha
+
+        self.score_names = ["score"]
 
     def per_token_scores(
         self,
         output: ModelOutput,
-        num_return_sequences: int = 1,
-        num_beam: int = 1,
-        batch_size: int = 1,
     ):
         """
         :param output: ModelOutput object from huggingface generator. We need the scores and the generated sequences
@@ -54,24 +61,17 @@ class SequenceRenyiNegFilter(SequenceSoftMaxFilterBase):
     def per_output_scores(
         self,
         output: ModelOutput,
-        num_return_sequences: int = 1,
-        num_beam: int = 1,
-        batch_size: int = 1,
     ) -> torch.Tensor:
         # (batch_size, 1)
         # aggregate the scores over the generated tokens
 
-        per_step_scores = self.per_token_scores(
-            output, num_return_sequences, num_beam, batch_size
-        )
+        per_step_scores = self.per_token_scores(output)
         per_step_scores = per_step_scores.transpose(0, 1)
 
         anomaly_scores = self.aggregate_step_by_step_scores(
             output.sequences,
             per_step_scores,
-            num_return_sequences,
-            num_beam,
-            batch_size,
+            self.num_return_sequences,
         )
 
         return anomaly_scores
@@ -79,18 +79,33 @@ class SequenceRenyiNegFilter(SequenceSoftMaxFilterBase):
     def per_input_scores(
         self,
         output: ModelOutput,
-        num_return_sequences: int = 1,
-        num_beam: int = 1,
-        batch_size: int = 1,
     ) -> torch.Tensor:
         # (batch_size, num_return)
-        per_output_scores = self.per_output_scores(
-            output, num_return_sequences, num_beam, batch_size
-        )
+        per_output_scores = self.per_output_scores(output)
 
         # (batch_size, 1)
         anomaly_scores = per_output_scores.mean(-1)
         return anomaly_scores
+
+    def compute_scores_benchmark(self, output: ModelOutput) -> Dict[str, torch.Tensor]:
+        """
+        Compute the Mahalanobis distance of the first sequence returned for each input.
+        :param output: output of the model
+        :return: (*,) tensor of Mahalanobis distances
+        """
+
+        if self.mode == "input":
+            scores = self.per_input_scores(output)
+        elif self.mode == "output":
+            scores = self.per_output_scores(output)
+        elif self.mode == "token":
+            scores = self.per_token_scores(output)
+        else:
+            raise ValueError(f"Unknown mode {self.mode} for {self}")
+
+        scores = {"score": scores}
+
+        return scores
 
     def fit(self, *args, **kwargs):
         pass
