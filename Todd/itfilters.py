@@ -1,4 +1,4 @@
-from typing import Dict, Tuple, List, Union
+from typing import Dict, List, Union
 
 import torch
 from transformers.generation_utils import ModelOutput
@@ -36,7 +36,6 @@ class SequenceRenyiNegFilter(SequenceSoftMaxFilterBase):
     ):
         """
         :param output: ModelOutput object from huggingface generator. We need the scores and the generated sequences
-        :param num_return_sequences: number of sequences returned by the model
         :return: a mask of size (batch_size, 1) where 0 means that the sequence is anomalous
         """
         batch_size = output.sequences.shape[0] // self.num_return_sequences
@@ -139,19 +138,23 @@ class BeamRenyiInformationProjection(SequenceSoftMaxFilterBase):
         mode="input",
         use_soft_projection=False,
         n_neighbors=-1,
+        num_return_sequences: int = 1,
+        num_beams: int = 1,
+        batch_size: int = 1,
     ):
         super().__init__(threshold, temperature, pad_token_id, mode=mode)
+        self.batch_size = batch_size
+        self.num_beams = num_beams
+        self.num_return_sequences = num_return_sequences
         self.n_neighbors = n_neighbors
         self.use_soft_projection = use_soft_projection
 
         self.alpha = alpha
+        self.score_names = ["score"]
 
     def per_output_scores(
         self,
         output: ModelOutput,
-        num_return_sequences: int = 1,
-        num_beams: int = 1,
-        batch_size: int = 1,
     ) -> torch.Tensor:
         # Retieve probability distribution over the vocabulary for all sequences
 
@@ -165,7 +168,7 @@ class BeamRenyiInformationProjection(SequenceSoftMaxFilterBase):
         prob_types = (probabilities * mask[:, :, None]).sum(1) / mask.sum(-1)[:, None]
 
         # [batch_size, numreturn, vocab_size]
-        prob_types = prob_types.view(batch_size, num_return_sequences, -1)
+        prob_types = prob_types.view(self.batch_size, self.num_return_sequences, -1)
 
         # [batch_size, numreturn]
         scores = self.projection_function(prob_types)
@@ -212,16 +215,28 @@ class BeamRenyiInformationProjection(SequenceSoftMaxFilterBase):
     def per_input_scores(
         self,
         output: ModelOutput,
-        num_return_sequences: int = 1,
-        num_beams: int = 1,
-        batch_size: int = 1,
     ) -> torch.Tensor:
 
-        per_output_scores = self.per_output_scores(
-            output, num_return_sequences, num_beams, batch_size
-        )
+        per_output_scores = self.per_output_scores(output)
 
         return per_output_scores.mean(-1)
+
+    def compute_scores_benchmark(
+        self, output: ModelOutput
+    ) -> Dict[str, Union[torch.Tensor, List]]:
+
+        if self.mode == "input":
+            scores = self.per_input_scores(output)
+        elif self.mode == "output":
+            scores = self.per_output_scores(output)
+        elif self.mode == "token":
+            raise NotImplementedError("Token mode not implemented for this filter")
+        else:
+            raise ValueError(f"Unknown mode {self.mode} for {self}")
+
+        scores = {"score": scores}
+
+        return scores
 
     def per_token_scores(self, *args, **kwargs) -> torch.Tensor:
         raise NotImplementedError("This method makes no sense for this filter")
@@ -230,5 +245,6 @@ class BeamRenyiInformationProjection(SequenceSoftMaxFilterBase):
         return (
             f"BeamRenyiInformationProjection(alpha={self.alpha}, "
             f"use_soft_projection={self.use_soft_projection},"
-            f" n_neighbors={self.n_neighbors})"
+            f" n_neighbors={self.n_neighbors},"
+            f"temperature={self.temperature}, mode={self.mode})"
         )
