@@ -1,4 +1,4 @@
-from typing import Dict, Tuple
+from typing import Dict, Tuple, List, Union
 
 import torch
 from transformers.generation_utils import ModelOutput
@@ -37,10 +37,10 @@ class SequenceRenyiNegFilter(SequenceSoftMaxFilterBase):
         """
         :param output: ModelOutput object from huggingface generator. We need the scores and the generated sequences
         :param num_return_sequences: number of sequences returned by the model
-        :param num_beam: number of beams used by the model
-        :param batch_size: batch size
         :return: a mask of size (batch_size, 1) where 0 means that the sequence is anomalous
         """
+        batch_size = output.sequences.shape[0] // self.num_return_sequences
+
         # (num_gen_tokens, batch_size*numbeam*numreturn, vocab_size)
 
         # Retieve probability distribution over the vocabulary for all sequences
@@ -55,6 +55,10 @@ class SequenceRenyiNegFilter(SequenceSoftMaxFilterBase):
             torch.ones_like(per_step_scores) * probabilities.shape[-1]
         )
         probabilities *= 1 / (self.alpha - 1)
+        per_step_scores = per_step_scores.transpose(0, 1)
+        per_step_scores = per_step_scores.view(
+            batch_size, self.num_return_sequences, -1
+        )
 
         return per_step_scores
 
@@ -66,8 +70,6 @@ class SequenceRenyiNegFilter(SequenceSoftMaxFilterBase):
         # aggregate the scores over the generated tokens
 
         per_step_scores = self.per_token_scores(output)
-        per_step_scores = per_step_scores.transpose(0, 1)
-
         anomaly_scores = self.aggregate_step_by_step_scores(
             output.sequences,
             per_step_scores,
@@ -87,7 +89,9 @@ class SequenceRenyiNegFilter(SequenceSoftMaxFilterBase):
         anomaly_scores = per_output_scores.mean(-1)
         return anomaly_scores
 
-    def compute_scores_benchmark(self, output: ModelOutput) -> Dict[str, torch.Tensor]:
+    def compute_scores_benchmark(
+        self, output: ModelOutput
+    ) -> Dict[str, Union[torch.Tensor, List]]:
         """
         Compute the Mahalanobis distance of the first sequence returned for each input.
         :param output: output of the model
@@ -100,6 +104,17 @@ class SequenceRenyiNegFilter(SequenceSoftMaxFilterBase):
             scores = self.per_output_scores(output)
         elif self.mode == "token":
             scores = self.per_token_scores(output)
+            # build mask
+            mask = mask_pad_tokens(output.sequences, scores, self.pad_token_id)
+            # Transform scores into list of variable length
+            seq_lengths = mask.sum(-1)
+
+            scores = scores.view(self.batch_size * self.num_return_sequences, -1)
+            _scores = []
+            for i in range(self.batch_size * self.num_return_sequences):
+                _scores.append(scores[i, : seq_lengths[i]].tolist())
+            scores = _scores
+
         else:
             raise ValueError(f"Unknown mode {self.mode} for {self}")
 

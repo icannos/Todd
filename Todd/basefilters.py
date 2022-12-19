@@ -208,8 +208,9 @@ class SequenceSoftMaxFilterBase(DecoderBasedFilters):
 
         batch_size = sequences.shape[0] // num_return_sequences
 
-        # (batch_size*numbeam*numreturn, nun_gen_steps)
+        # (batch_size, num_seq_return, nun_gen_steps)
         per_step_scores = per_step_scores.squeeze(-1)
+        per_step_scores = per_step_scores.view(batch_size * num_return_sequences, -1)
 
         # (batch_size*numbeam*numreturn, 1)
         anomaly_scores = mean_score_remove_padding(
