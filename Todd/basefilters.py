@@ -243,17 +243,16 @@ class SequenceMSPFilter(SequenceSoftMaxFilterBase):
         output: ModelOutput,
         num_return_sequences: int = 1,
         num_beam: int = 1,
-        batch_size: int = 1,
     ) -> torch.Tensor:
         """
         Returns OOD scores per generated token based on the probability distribution they have been generated from.
         @param output: ModelOutput object.
         @param num_return_sequences: number of sequences returned by the model.
         @param num_beam: number of beams used by the model
-        @param batch_size: batch size used during generation.
         @return: (batch_size, num_return_sequences, seq_len) tensor of scores.
         """
 
+        batch_size = output.sequences.shape[0] // self.num_return_sequences
         sequences = output.sequences
         probabilities = self.mk_probability(output.scores)
         per_step_scores = torch.max(probabilities, dim=-1)
@@ -265,7 +264,6 @@ class SequenceMSPFilter(SequenceSoftMaxFilterBase):
         output: ModelOutput,
         num_return_sequences: int = 1,
         num_beam: int = 1,
-        batch_size: int = 1,
     ) -> torch.Tensor:
         sequences = output.sequences
         probabilities = self.mk_probability(output.scores)

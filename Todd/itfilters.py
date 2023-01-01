@@ -23,7 +23,6 @@ class SequenceRenyiNegFilter(SequenceSoftMaxFilterBase):
         batch_size: int = 1,
     ):
         super().__init__(threshold, temperature, pad_token_id, mode=mode)
-        self.batch_size = batch_size
         self.num_beam = num_beam
         self.num_return_sequences = num_return_sequences
         self.alpha = alpha
@@ -97,6 +96,8 @@ class SequenceRenyiNegFilter(SequenceSoftMaxFilterBase):
         :return: (*,) tensor of Mahalanobis distances
         """
 
+        self.batch_size = output.sequences.shape[0] // self.num_return_sequences
+
         if self.mode == "input":
             scores = self.per_input_scores(output)
         elif self.mode == "output":
@@ -140,10 +141,8 @@ class BeamRenyiInformationProjection(SequenceSoftMaxFilterBase):
         n_neighbors=-1,
         num_return_sequences: int = 1,
         num_beams: int = 1,
-        batch_size: int = 1,
     ):
         super().__init__(threshold, temperature, pad_token_id, mode=mode)
-        self.batch_size = batch_size
         self.num_beams = num_beams
         self.num_return_sequences = num_return_sequences
         self.n_neighbors = n_neighbors
@@ -158,6 +157,7 @@ class BeamRenyiInformationProjection(SequenceSoftMaxFilterBase):
     ) -> torch.Tensor:
         # Retieve probability distribution over the vocabulary for all sequences
 
+        self.batch_size = output.sequences.shape[0] // self.num_return_sequences
         # [len_gen, batch_size*numreturn, vocab_size]
         probabilities = self.mk_probability(torch.stack(output.scores))
 
@@ -245,6 +245,6 @@ class BeamRenyiInformationProjection(SequenceSoftMaxFilterBase):
         return (
             f"BeamRenyiInformationProjection(alpha={self.alpha}, "
             f"use_soft_projection={self.use_soft_projection},"
-            f" n_neighbors={self.n_neighbors},"
+            f"n_neighbors={self.n_neighbors},"
             f"temperature={self.temperature}, mode={self.mode})"
         )
