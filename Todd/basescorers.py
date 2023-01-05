@@ -41,48 +41,21 @@ def mean_score_remove_padding(
     return ((scores * mask.float()).sum(dim=-1) / mask.sum(dim=-1).float()).squeeze()
 
 
-class Filter(ABC):
-    def __init__(self, threshold):
-        """
-        :param threshold: threshold to use for the filter
-        """
-        self.threshold = threshold
-
-        # List of the scores computed by the filter
+class Scorer(ABC):
+    def __init__(self):
+        # List of the scores computed by the scorer
         # List of keys returned in the compute_scores_benchmark method
         # Can be empty if the filter returns a single score
         self.score_names: List[str] = []
 
-    def __call__(self, *args, **kwargs) -> torch.Tensor:
-        return self.predict(*args, **kwargs)
-
-    def predict(self, *args, **kwargs) -> torch.Tensor:
-        """
-        Compute the score of the input sequences and return a mask tensor with True for the sequences to keep.
-        It relies on the `compute_score` method that should be implemented by the child class.
-        """
-        scores = self.decision_function(*args, **kwargs)
-
-        return scores >= 0
+    def __call__(self, *args, **kwargs):
+        return self.compute_scores(*args, **kwargs)
 
     def fit(self, *args, **kwargs):
         pass
 
     def accumulate(self, *args, **kwargs):
         pass
-
-    def decision_function(self, *args, **kwargs) -> torch.Tensor:
-        """
-        Should be defined using the scoring function of the filter such that negative values are outliers/anomalies
-        """
-        return self.threshold - self.compute_scores(*args, **kwargs)
-
-    def scores(self, *args, **kwargs) -> torch.Tensor:
-        """
-        Compute the raw scores of the input.
-        """
-
-        return self.compute_scores(*args, **kwargs)
 
     def compute_scores(self, *args, **kwargs) -> torch.Tensor:
         """
@@ -107,17 +80,17 @@ class Filter(ABC):
         return self.__repr__()
 
 
-FilterType = TypeVar("FilterType", bound=Filter)
+ScorerType = TypeVar("ScorerType", bound=Scorer)
 
 
-class EncoderBasedFilters(Filter):
+class EncoderBasedScorers(Scorer):
     def __init__(self, threshold):
         super().__init__(threshold)
 
 
-class DecoderBasedFilters(Filter):
-    def __init__(self, threshold, mode: str = "input"):
-        super().__init__(threshold)
+class DecoderBasedScorers(Scorer):
+    def __init__(self, mode: str = "input"):
+        super().__init__()
         self.mode = mode
 
     def compute_scores(self, *args, **kwargs) -> torch.Tensor:
@@ -148,13 +121,13 @@ class DecoderBasedFilters(Filter):
         raise NotImplementedError
 
 
-class LikelyhoodFilter(DecoderBasedFilters):
+class LikelyhoodScorer(DecoderBasedScorers):
     """
     Filters a batch of output based on the likelyhood of the first sequence returned for each input.
     """
 
-    def __init__(self, threshold: float = 0.9, mode="input", num_return_sequences=1):
-        super().__init__(threshold, mode=mode)
+    def __init__(self, mode="input", num_return_sequences=1):
+        super().__init__(mode=mode)
         self.num_return_sequences = num_return_sequences
 
     def per_output_scores(self, output: ModelOutput) -> torch.Tensor:
@@ -177,18 +150,16 @@ class LikelyhoodFilter(DecoderBasedFilters):
         return f"{self.__class__.__name__}(mode={self.mode})"
 
 
-class SequenceSoftMaxFilterBase(DecoderBasedFilters):
+class SequenceSoftMaxScorerBase(DecoderBasedScorers):
     def __init__(
         self,
-        threshold: float,
         temperature: float = 2.0,
         pad_token_id: int = 0,
         mode="input",
     ):
-        super().__init__(threshold, mode=mode)
+        super().__init__(mode=mode)
         self.pad_token_id = pad_token_id
         self.temperature = temperature
-        self.threshold = threshold
 
     def mk_probability(self, scores: torch.Tensor) -> torch.Tensor:
         return torch.softmax(scores / self.temperature, dim=-1)
@@ -223,7 +194,7 @@ class SequenceSoftMaxFilterBase(DecoderBasedFilters):
         return anomaly_scores
 
 
-class SequenceMSPFilter(SequenceSoftMaxFilterBase):
+class SequenceMSPScorer(SequenceSoftMaxScorerBase):
     """
     Compute the Maximum Softmax Probability score of the input
     sequences and return a mask tensor with True for the sequences to keep.
@@ -231,12 +202,11 @@ class SequenceMSPFilter(SequenceSoftMaxFilterBase):
 
     def __init__(
         self,
-        threshold: float,
         temperature: float = 2.0,
         pad_token_id: int = 0,
         mode="input",
     ):
-        super().__init__(threshold, temperature, pad_token_id, mode=mode)
+        super().__init__(temperature, pad_token_id, mode=mode)
 
     def per_token_scores(
         self,

@@ -3,17 +3,16 @@ from typing import Dict, List, Union
 import torch
 from transformers.generation_utils import ModelOutput
 
-from .basefilters import SequenceSoftMaxFilterBase, mask_pad_tokens
+from .basescorers import SequenceSoftMaxScorerBase, mask_pad_tokens
 
 
-class SequenceRenyiNegFilter(SequenceSoftMaxFilterBase):
+class SequenceRenyiNegScorer(SequenceSoftMaxScorerBase):
     """
     Filters a batch of outputs based on the Renyi entropy of the first sequence returned for each input.
     """
 
     def __init__(
         self,
-        threshold: float,
         alpha: float = 1.5,
         temperature: float = 2.0,
         pad_token_id: int = 0,
@@ -22,7 +21,7 @@ class SequenceRenyiNegFilter(SequenceSoftMaxFilterBase):
         num_beam: int = 1,
         batch_size: int = 1,
     ):
-        super().__init__(threshold, temperature, pad_token_id, mode=mode)
+        super().__init__(temperature, pad_token_id, mode=mode)
         self.num_beam = num_beam
         self.num_return_sequences = num_return_sequences
         self.alpha = alpha
@@ -129,10 +128,9 @@ class SequenceRenyiNegFilter(SequenceSoftMaxFilterBase):
         return f"RenyiNegFilter(alpha={self.alpha}, temperature={self.temperature}, mode={self.mode})"
 
 
-class BeamRenyiInformationProjection(SequenceSoftMaxFilterBase):
+class BeamRenyiInformationProjection(SequenceSoftMaxScorerBase):
     def __init__(
         self,
-        threshold: float,
         alpha: float = 1.5,
         temperature: float = 2.0,
         pad_token_id: int = 0,
@@ -142,7 +140,7 @@ class BeamRenyiInformationProjection(SequenceSoftMaxFilterBase):
         num_return_sequences: int = 1,
         num_beams: int = 1,
     ):
-        super().__init__(threshold, temperature, pad_token_id, mode=mode)
+        super().__init__(temperature, pad_token_id, mode=mode)
         self.num_beams = num_beams
         self.num_return_sequences = num_return_sequences
         self.n_neighbors = n_neighbors

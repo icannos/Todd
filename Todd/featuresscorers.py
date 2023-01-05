@@ -6,7 +6,7 @@ import torch
 from torch.utils.data import DataLoader
 from transformers.generation_utils import ModelOutput
 
-from .basefilters import EncoderBasedFilters
+from .basescorers import EncoderBasedScorers
 
 
 def extract_batch_embeddings(
@@ -73,17 +73,16 @@ def extract_embeddings(
     return per_layer_embeddings, y
 
 
-class MahalanobisFilter(EncoderBasedFilters):
+class MahalanobisFilter(EncoderBasedScorers):
     """
     Filters a batch of outputs based on the Mahalanobis distance of the first sequence returned for each input.
     """
 
     def __init__(
         self,
-        threshold: float,
         layers: List[int] = (-1,),
     ):
-        super().__init__(threshold)
+        super().__init__()
         self.covs = None
         self.means = None
 
@@ -211,9 +210,9 @@ class MahalanobisFilter(EncoderBasedFilters):
         return f"MahalanobisFilter(layers={self.layers})"
 
 
-class CosineProjectionScorer(EncoderBasedFilters):
-    def __init__(self, threshold=0, layers: List[int] = (-1,)):
-        super().__init__(threshold=threshold)
+class CosineProjectionScorer(EncoderBasedScorers):
+    def __init__(self, layers: List[int] = (-1,)):
+        super().__init__()
 
         self.layers = set(layers)
         self.accumulated_embeddings = defaultdict(list)
