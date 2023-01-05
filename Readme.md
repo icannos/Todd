@@ -66,6 +66,7 @@ with torch.no_grad():
 
 ## Todo:
 
+- [ ] Add reorderers to reorder the beam search candidates
 - [ ] Split filters and anomaly scorers (WIP, maxime)
 - [x] Add power means and cosines ood scores
 
