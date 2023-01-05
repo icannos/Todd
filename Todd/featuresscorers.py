@@ -50,7 +50,6 @@ def extract_embeddings(
     """
     per_layer_embeddings = defaultdict(list)
 
-    # Todo: take classes into account
     with torch.no_grad():
         for batch in dataloader:
             # Retrieves hidden states from the model
@@ -73,7 +72,7 @@ def extract_embeddings(
     return per_layer_embeddings, y
 
 
-class MahalanobisFilter(EncoderBasedScorers):
+class MahalanobisScorer(EncoderBasedScorers):
     """
     Filters a batch of outputs based on the Mahalanobis distance of the first sequence returned for each input.
     """
@@ -93,8 +92,8 @@ class MahalanobisFilter(EncoderBasedScorers):
 
     def accumulate(self, output: ModelOutput, y: Optional[List[int]] = None) -> None:
         """
-        Accumulate the embeddings of the input sequences in the filter. To be used before fitting
-        the filter with self.fit.
+        Accumulate the embeddings of the input sequences in the scorer. To be used before fitting
+        the scorer with self.fit.
         It is an encapsulation of extract_batch_embeddings / extract embeddings directly in the detector.
         @param output: Model output
         @param y: classes of the input sequences (used to build per class references)
@@ -118,7 +117,7 @@ class MahalanobisFilter(EncoderBasedScorers):
         **kwargs,
     ):
         """
-        Prepare the filter by computing necessary statistics on the reference dataset.
+        Prepare the scorer by computing necessary statistics on the reference dataset.
         :param per_layer_embeddings:
         """
 
@@ -141,10 +140,10 @@ class MahalanobisFilter(EncoderBasedScorers):
             f"layer_{layer}_class_{cl}" for layer, cl in self.means.keys()
         ]
 
-    def dump_filter(self, path: Path):
+    def dump_scorer(self, path: Path):
         torch.save((self.means, self.covs), path)
 
-    def load_filter(self, path: Path):
+    def load_scorer(self, path: Path):
         self.means, self.covs = torch.load(path)
 
     def compute_per_layer_per_class_distances(

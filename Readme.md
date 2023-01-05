@@ -6,6 +6,12 @@ level and token level. The input level anomaly detection is used for OOD detecti
 the generated sequence level aims at selecting the best candidates in a beam and the token
 level aims at detecting potentially wrong tokens in the generated sequence.
 
+It revolves around two concepts: scorers and filters. The scorers are used to score the input, token or ouput 
+and filters leverage these scores to produce masks to decide what to keep or reject.
+
+For benchmarking purpose we tend to only use scorers to dump the scores and compte statistics. 
+In practice though, we would want to use filters to select the best candidates.
+
 
 ## Installation
 
@@ -36,7 +42,7 @@ Different examples are provided in the `examples` folder.
 ref_embeddings, _ = extract_embeddings(model, tokenizer, in_val_loader, layers=[6])
 
 # Initialize the Mahalanobis detector
-maha_detector = MahalanobisFilter(threshold=3200, layers=[6])
+maha_detector = MahalanobisScorer(layers=[6])
 # Fit the detector with the reference set
 maha_detector.fit(ref_embeddings)
 
@@ -53,14 +59,14 @@ with torch.no_grad():
         )
 
         print(maha_detector(output)) 
-        # Output a mask of the same size as the batch
+        # Output the scores for each input in the batch
         # True means the input is In-Distribution (ie to be kept) and False means OOD
 ```
 
 
 ## Todo:
 
-- [ ] Split filters and anomaly scorers
-- [ ] Add power means and cosines ood scores
+- [ ] Split filters and anomaly scorers (WIP, maxime)
+- [x] Add power means and cosines ood scores
 
 ## API

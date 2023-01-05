@@ -84,8 +84,8 @@ ScorerType = TypeVar("ScorerType", bound=Scorer)
 
 
 class EncoderBasedScorers(Scorer):
-    def __init__(self, threshold):
-        super().__init__(threshold)
+    def __init__(self):
+        super().__init__()
 
 
 class DecoderBasedScorers(Scorer):
