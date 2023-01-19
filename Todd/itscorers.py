@@ -1,7 +1,7 @@
 from typing import Dict, List, Union
 
 import torch
-from transformers.generation_utils import ModelOutput
+from transformers.modeling_outputs import ModelOutput
 
 from .basescorers import SequenceSoftMaxScorerBase, mask_pad_tokens
 

@@ -4,7 +4,7 @@ from typing import List, Tuple, Dict, Optional, Iterable
 
 import torch
 from torch.utils.data import DataLoader
-from transformers.generation_utils import ModelOutput
+from transformers.modeling_outputs import ModelOutput
 
 from .basescorers import EncoderBasedScorers
 

@@ -2,7 +2,7 @@ from abc import ABC
 from typing import TypeVar, Dict, List, Union
 
 import torch
-from transformers.generation_utils import ModelOutput
+from transformers.modeling_outputs import ModelOutput
 
 
 def mask_pad_tokens(
