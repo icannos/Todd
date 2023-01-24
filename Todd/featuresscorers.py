@@ -16,9 +16,13 @@ def extract_batch_embeddings(
     layers: Optional[Iterable[int]] = None,
     hidden_states="encoder_hidden_states",
 ) -> Tuple[Dict[Tuple[int, int], List[torch.Tensor]], torch.Tensor]:
+    """
+    Append new layer embeddings from the output to the provided dictionnary
+    """
     if layers is None:
         layers = range(len(output[hidden_states]))
     if layers is not None:
+        # TODO: make clearer
         N_layers = len(output[hidden_states])
         layers = [l if l >= 0 else N_layers + l for l in layers]
 
@@ -105,9 +109,6 @@ class MahalanobisScorer(EncoderBasedScorers):
             layers=self.layers,
             y=y,
         )
-
-        for key, ref_list in per_layer_embeddings.items():
-            self.accumulated_embeddings[key].extend(ref_list)
 
     def fit(
         self,
@@ -226,9 +227,6 @@ class CosineProjectionScorer(EncoderBasedScorers):
             layers=self.layers,
             y=y,
         )
-
-        for key, ref_list in per_layer_embeddings.items():
-            self.accumulated_embeddings[key].extend(ref_list)
 
     def fit(
         self,
