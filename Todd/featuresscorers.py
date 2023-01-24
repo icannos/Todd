@@ -218,6 +218,7 @@ class CosineProjectionScorer(EncoderBasedScorers):
         self.accumulated_embeddings = defaultdict(list)
 
         self.reference_embeddings: Dict[Tuple[int, int], Optional[torch.Tensor]] = {}
+        self.score_names = []
 
     def accumulate(self, output: ModelOutput, y: Optional[List[int]] = None) -> None:
 
@@ -243,6 +244,7 @@ class CosineProjectionScorer(EncoderBasedScorers):
 
         # free some space since we now have stored everything in the tensor
         del self.accumulated_embeddings
+        self.score_names = [f"{layer}_{cl}" for layer,cl in self.reference_embeddings.keys()]
 
     def compute_per_layer_per_class_disimilarity(
         self, output: ModelOutput
