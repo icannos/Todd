@@ -121,9 +121,9 @@ class DecoderBasedScorers(Scorer):
         raise NotImplementedError
 
 
-class LikelyhoodScorer(DecoderBasedScorers):
+class LikelihoodScorer(DecoderBasedScorers):
     """
-    Filters a batch of output based on the likelyhood of the first sequence returned for each input.
+    Filters a batch of output based on the likelihood of the first sequence returned for each input.
     """
 
     def __init__(self, mode="input", num_return_sequences=1):
