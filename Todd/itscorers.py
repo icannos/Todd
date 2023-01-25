@@ -1,5 +1,4 @@
-from typing import Dict, List, Union, Optional, Tuple
-from collections import defaultdict
+from typing import Dict, List, Union
 
 import torch
 from transformers.modeling_outputs import ModelOutput
@@ -14,14 +13,14 @@ class SequenceRenyiNegScorer(SequenceSoftMaxScorerBase):
     """
 
     def __init__(
-        self,
-        alpha: float = 1.5,
-        temperature: float = 2.0,
-        pad_token_id: int = 0,
-        mode="input",
-        num_return_sequences: int = 1,
-        num_beam: int = 1,
-        batch_size: int = 1,
+            self,
+            alpha: float = 1.5,
+            temperature: float = 2.0,
+            pad_token_id: int = 0,
+            mode="input",
+            num_return_sequences: int = 1,
+            num_beam: int = 1,
+            batch_size: int = 1,
     ):
         super().__init__(temperature, pad_token_id, mode=mode)
         self.num_beam = num_beam
@@ -31,8 +30,8 @@ class SequenceRenyiNegScorer(SequenceSoftMaxScorerBase):
         self.score_names = ["score"]
 
     def per_token_scores(
-        self,
-        output: ModelOutput,
+            self,
+            output: ModelOutput,
     ):
         """
         :param output: ModelOutput object from huggingface generator. We need the scores and the generated sequences
@@ -62,8 +61,8 @@ class SequenceRenyiNegScorer(SequenceSoftMaxScorerBase):
         return per_step_scores
 
     def per_output_scores(
-        self,
-        output: ModelOutput,
+            self,
+            output: ModelOutput,
     ) -> torch.Tensor:
         # (batch_size, 1)
         # aggregate the scores over the generated tokens
@@ -78,8 +77,8 @@ class SequenceRenyiNegScorer(SequenceSoftMaxScorerBase):
         return anomaly_scores
 
     def per_input_scores(
-        self,
-        output: ModelOutput,
+            self,
+            output: ModelOutput,
     ) -> torch.Tensor:
         # (batch_size, num_return)
         per_output_scores = self.per_output_scores(output)
@@ -89,7 +88,7 @@ class SequenceRenyiNegScorer(SequenceSoftMaxScorerBase):
         return anomaly_scores
 
     def compute_scores_benchmark(
-        self, output: ModelOutput
+            self, output: ModelOutput
     ) -> Dict[str, Union[torch.Tensor, List]]:
         """
         Compute the Mahalanobis distance of the first sequence returned for each input.
@@ -122,6 +121,9 @@ class SequenceRenyiNegScorer(SequenceSoftMaxScorerBase):
         scores = {"score": scores}
 
         return scores
+
+    def __format__(self, format_spec):
+        return f"SequenceRenyiNegScorer(alpha={self.alpha}, temperature={self.temperature}, mode={self.mode})"
 
 
 class SequenceRenyiNegDataFittedScorer(SequenceRenyiNegScorer):
@@ -165,8 +167,8 @@ class SequenceRenyiNegDataFittedScorer(SequenceRenyiNegScorer):
         # free some space since we now have stored everything in the tensor
 
     def per_token_scores(
-        self,
-        output: ModelOutput,
+            self,
+            output: ModelOutput,
     ):
         """
         :param output: ModelOutput object from huggingface generator. We need the scores and the generated sequences
@@ -184,7 +186,8 @@ class SequenceRenyiNegDataFittedScorer(SequenceRenyiNegScorer):
 
         # TODO: Change this to be based on the reference embeddings that was accumulated
         # Renyi divergence against the uniform distribution
-        renyi_div = lambda X, Y: torch.log(torch.sum(X**self.alpha * Y ** (1 - self.alpha), dim=-1)) / (self.alpha - 1)
+        renyi_div = lambda X, Y: torch.log(torch.sum(X ** self.alpha * Y ** (1 - self.alpha), dim=-1)) / (
+                    self.alpha - 1)
 
         Y = probabilities.view(-1, probabilities.shape[2])
         X = self.reference_vocab.unsqueeze(0).repeat_interleave(Y.shape[0], dim=0)
@@ -199,18 +202,21 @@ class SequenceRenyiNegDataFittedScorer(SequenceRenyiNegScorer):
 
         return per_step_scores
 
+    def __format__(self, format_spec):
+        return f"SequenceRenyiNegDataFittedScorer(alpha={self.alpha}, temperature={self.temperature}, mode={self.mode})"
+
 
 class BeamRenyiInformationProjection(SequenceSoftMaxScorerBase):
     def __init__(
-        self,
-        alpha: float = 1.5,
-        temperature: float = 2.0,
-        pad_token_id: int = 0,
-        mode="input",
-        use_soft_projection=False,
-        n_neighbors=-1,
-        num_return_sequences: int = 1,
-        num_beams: int = 1,
+            self,
+            alpha: float = 1.5,
+            temperature: float = 2.0,
+            pad_token_id: int = 0,
+            mode="input",
+            use_soft_projection=False,
+            n_neighbors=-1,
+            num_return_sequences: int = 1,
+            num_beams: int = 1,
     ):
         super().__init__(temperature, pad_token_id, mode=mode)
         self.num_beams = num_beams
@@ -222,8 +228,8 @@ class BeamRenyiInformationProjection(SequenceSoftMaxScorerBase):
         self.score_names = ["score"]
 
     def per_output_scores(
-        self,
-        output: ModelOutput,
+            self,
+            output: ModelOutput,
     ) -> torch.Tensor:
         # Retieve probability distribution over the vocabulary for all sequences
 
@@ -283,8 +289,8 @@ class BeamRenyiInformationProjection(SequenceSoftMaxScorerBase):
         pass
 
     def per_input_scores(
-        self,
-        output: ModelOutput,
+            self,
+            output: ModelOutput,
     ) -> torch.Tensor:
 
         per_output_scores = self.per_output_scores(output)
@@ -292,7 +298,7 @@ class BeamRenyiInformationProjection(SequenceSoftMaxScorerBase):
         return per_output_scores.mean(-1)
 
     def compute_scores_benchmark(
-        self, output: ModelOutput
+            self, output: ModelOutput
     ) -> Dict[str, Union[torch.Tensor, List]]:
 
         if self.mode == "input":
