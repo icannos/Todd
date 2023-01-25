@@ -192,7 +192,7 @@ class SequenceRenyiNegDataFittedScorer(SequenceRenyiNegScorer):
         Y = probabilities.view(-1, probabilities.shape[2])
         X = self.reference_vocab.unsqueeze(0).repeat_interleave(Y.shape[0], dim=0)
 
-        if self.alpha != 1:
+        if self.alpha == 1:
             self.alpha = 1.01
 
         per_step_scores = renyi_div(X, Y)
