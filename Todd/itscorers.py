@@ -158,14 +158,15 @@ class SequenceRenyiNegDataFittedScorer(SequenceRenyiNegScorer):
 
         # (num_gen_tokens, batch_size*numbeam*numreturn, 1)
 
-        renyi_div = lambda X, Y: torch.log(torch.sum(X ** self.alpha * Y ** (1 - self.alpha), dim=-1)) / (
-                    self.alpha - 1)
+        # Very slow !
+        renyi_div = lambda X, Y: torch.log(torch.sum((X ** self.alpha)*(Y ** (1 - self.alpha)), dim=-1))/(self.alpha-1)
 
         Y = probabilities.view(-1, probabilities.shape[2])
         if self.reference_vocab_distribution is None:
             self.reference_vocab_distribution = torch.ones_like(Y[0]) / Y.shape[1]
 
-        X = self.reference_vocab_distribution.unsqueeze(0).repeat_interleave(Y.shape[0], dim=0)
+        # X = self.reference_vocab_distribution.unsqueeze(0).repeat_interleave(Y.shape[0], dim=0)
+        X = self.reference_vocab_distribution.broadcast_to(Y.shape)
 
         if self.alpha == 1:
             self.alpha = 1.01
