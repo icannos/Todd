@@ -130,7 +130,7 @@ class SequenceRenyiNegDataFittedScorer(SequenceRenyiNegScorer):
     def __init__(
             self,
             *args,
-            reference_vocab=None,
+            reference_vocab_distribution=None,
             **kwargs
     ):
         """
@@ -138,33 +138,7 @@ class SequenceRenyiNegDataFittedScorer(SequenceRenyiNegScorer):
                                 If None, it will be fitted on the logits of the validation set
         """
         super().__init__(*args, **kwargs)
-        self.accumulated_vocab = []
-        self.reference_vocab = reference_vocab
-
-    def accumulate(self, output: ModelOutput) -> None:
-        """
-        Accumulate the embeddings of the input sequences in the scorer. To be used before fitting
-        the scorer with self.fit.
-        It is an encapsulation of extract_batch_embeddings / extract embeddings directly in the detector.
-        @param output: Model output
-        @param y: classes of the input sequences (used to build per class references)
-        """
-
-        extract_vocab_probs(
-            reference_distribution=self.accumulated_vocab,
-            output=output,
-        )
-
-    def fit(self, reference_vocab=None):
-        """
-        We fit on the validation set logit distribution (and not the vocabulary frequency) # TODO: check this
-        """
-        if reference_vocab is None and self.reference_vocab is None:
-            reference_vocab = torch.stack(self.accumulated_vocab).mean(axis=0)
-            self.reference_vocab = reference_vocab
-
-        self.accumulated_vocab = None
-        # free some space since we now have stored everything in the tensor
+        self.reference_vocab_distribution = reference_vocab_distribution
 
     def per_token_scores(
             self,
@@ -184,17 +158,19 @@ class SequenceRenyiNegDataFittedScorer(SequenceRenyiNegScorer):
 
         # (num_gen_tokens, batch_size*numbeam*numreturn, 1)
 
-        # TODO: Change this to be based on the reference embeddings that was accumulated
-        # Renyi divergence against the uniform distribution
         renyi_div = lambda X, Y: torch.log(torch.sum(X ** self.alpha * Y ** (1 - self.alpha), dim=-1)) / (
                     self.alpha - 1)
 
         Y = probabilities.view(-1, probabilities.shape[2])
-        X = self.reference_vocab.unsqueeze(0).repeat_interleave(Y.shape[0], dim=0)
+        if self.reference_vocab_distribution is None:
+            self.reference_vocab_distribution = torch.ones_like(Y[0]) / Y.shape[1]
+
+        X = self.reference_vocab_distribution.unsqueeze(0).repeat_interleave(Y.shape[0], dim=0)
 
         if self.alpha == 1:
             self.alpha = 1.01
 
+        # Maybe best to ignore pad and special tokens
         per_step_scores = renyi_div(X, Y)
         per_step_scores = per_step_scores.view(
             batch_size, self.num_return_sequences, -1
