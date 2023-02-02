@@ -41,7 +41,8 @@ def extract_batch_embeddings(
 
         # Append the embeddings to the list of embeddings for the layer
         for i in range(emb.shape[0]):
-            per_layer_embeddings[(layer, int(y[i]))].append(emb[i].detach().cpu())
+            # per_layer_embeddings[(layer, int(y[i]))].append(emb[i].detach().cpu())
+            per_layer_embeddings[(layer, int(y[i]))].append(emb[i].detach())
 
     return per_layer_embeddings, y
 

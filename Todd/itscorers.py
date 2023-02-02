@@ -235,7 +235,7 @@ class BeamRenyiInformationProjection(SequenceSoftMaxScorerBase):
         # Obviously the min would be 0 on the diagonal since the projection of an element onto itself is 0
         # So we set it to inf to avoid it
 
-        dd += torch.diag(torch.inf * torch.ones(dd.shape[1]))[None, :, :]
+        dd += torch.diag(torch.inf * torch.ones(dd.shape[1], device=dd.device))[None, :, :]
 
         if self.use_soft_projection:
             # We use the soft projection
