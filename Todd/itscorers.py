@@ -108,10 +108,11 @@ class SequenceRenyiNegScorer(SequenceSoftMaxScorerBase):
             # Transform scores into list of variable length
             seq_lengths = mask.sum(-1)
 
-            scores = scores.view(self.batch_size * self.num_return_sequences, -1)
+            scores = scores.view(self.batch_size, self.num_return_sequences, -1)
             _scores = []
-            for i in range(self.batch_size * self.num_return_sequences):
-                _scores.append(scores[i, : seq_lengths[i]].tolist())
+            for i in range(self.batch_size):
+                _scores.append([scores[i,j, : seq_lengths[i * self.num_return_sequences + j]].tolist() for j in
+                                range(self.num_return_sequences)])
             scores = _scores
 
         else:
