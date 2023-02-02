@@ -4,7 +4,6 @@ import torch
 from transformers.modeling_outputs import ModelOutput
 
 from .basescorers import SequenceSoftMaxScorerBase, mask_pad_tokens
-from .utils import extract_vocab_probs
 
 
 class SequenceRenyiNegScorer(SequenceSoftMaxScorerBase):
@@ -130,7 +129,7 @@ class SequenceRenyiNegDataFittedScorer(SequenceRenyiNegScorer):
     def __init__(
             self,
             *args,
-            reference_vocab_distribution=None,
+            reference_vocab_distribution,
             **kwargs
     ):
         """
@@ -138,7 +137,15 @@ class SequenceRenyiNegDataFittedScorer(SequenceRenyiNegScorer):
                                 If None, it will be fitted on the logits of the validation set
         """
         super().__init__(*args, **kwargs)
-        self.reference_vocab_distribution = reference_vocab_distribution
+        if self.alpha == 1:
+            raise ValueError("Renyi divergence with alpha=1 is not defined")
+
+        # Precompute for efficiency
+        self.reference_vocab_distribution = torch.pow(reference_vocab_distribution, self.alpha)
+
+    def _renyi_div(self, Y):
+        X = self.reference_vocab_distribution.broadcast_to(Y.shape)
+        return torch.log(torch.sum(X * (Y ** (1 - self.alpha)), dim=-1)) / (self.alpha - 1)
 
     def per_token_scores(
             self,
@@ -158,22 +165,10 @@ class SequenceRenyiNegDataFittedScorer(SequenceRenyiNegScorer):
 
         # (num_gen_tokens, batch_size*numbeam*numreturn, 1)
 
-        # Very slow !
-        renyi_div = lambda X, Y: torch.log(torch.sum((X ** self.alpha)*(Y ** (1 - self.alpha)), dim=-1))/(self.alpha-1)
-
         Y = probabilities.view(-1, probabilities.shape[2])
-        if self.reference_vocab_distribution is None:
-            self.reference_vocab_distribution = torch.ones_like(Y[0]) / Y.shape[1]
-
-        # X = self.reference_vocab_distribution.unsqueeze(0).repeat_interleave(Y.shape[0], dim=0)
-        X = self.reference_vocab_distribution.broadcast_to(Y.shape)
-
-        if self.alpha == 1:
-            self.alpha = 1.01
 
         # Maybe best to ignore pad and special tokens
-        per_step_scores = renyi_div(X, Y)
-        per_step_scores = per_step_scores.view(
+        per_step_scores = self._renyi_div(Y).view(
             batch_size, self.num_return_sequences, -1
         )
 
