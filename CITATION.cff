@@ -12,7 +12,7 @@ authors:
   given-names: "Marine"
 - family-names: "Dadalto Camara Gomez"
   given-names: "Eduardo"
- - family-names: "Colombo"
+- family-names: "Colombo"
   given-names: "Pierre"
 title: "Todd: A tool for text OOD detection."
 version: 0.0.1
