@@ -2,8 +2,8 @@ cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
 authors:
 - family-names: "Darrin"
-    given-names: "Maxime"
-    orcid: "https://orcid.org/0000-0002-7158-5873"
+  given-names: "Maxime"
+  orcid: "https://orcid.org/0000-0002-7158-5873"
 title: "Todd: A tool for text OOD detection."
 version: 0.0.1
 date-released: 2023-02-01
