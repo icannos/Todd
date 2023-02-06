@@ -1,5 +1,7 @@
 from abc import ABC
+from collections import defaultdict
 from typing import TypeVar, Dict, List, Union
+from typing import Optional, Iterable, Tuple
 
 import torch
 from transformers.modeling_outputs import ModelOutput
@@ -83,12 +85,44 @@ class Scorer(ABC):
 ScorerType = TypeVar("ScorerType", bound=Scorer)
 
 
-class EncoderBasedScorers(Scorer):
-    def __init__(self):
+class HiddenStateBasedScorers(Scorer):
+    def __init__(self, kwargs):
         super().__init__()
+        self.chosen_state = kwargs.get("chosen_state", "encoder_hidden_states")
+        self.accumulated_embeddings = defaultdict(list)
+        self.layers = None
+
+    def extract_batch_embeddings(
+        self,
+        output,
+        y: Optional[torch.Tensor] = None,
+        ) -> None:
+
+        """
+        Append new layer embeddings from the output to the provided dictionnary
+        """
+        if self.layers is None:
+            layers = range(len(output[self.chosen_state]))
+        if self.layers is not None:
+            # TODO: make clearer
+            N_layers = len(output[self.chosen_state])
+            layers = [l if l >= 0 else N_layers + l for l in self.layers]
+
+        if y is None:
+            y = torch.zeros(output[self.chosen_state][0].shape[0], dtype=torch.long)
+
+        for layer in self.layers:
+            # We use the first token embedding as representation of the sequence for now
+            # It avoids the problem of the different length of the sequences when trying to take the average embedding
+            emb = output[self.chosen_state][layer][:, 0, ...]
+
+            # Append the embeddings to the list of embeddings for the layer
+            for i in range(emb.shape[0]):
+                # per_layer_embeddings[(layer, int(y[i]))].append(emb[i].detach().cpu())
+                self.accumulated_embeddings[(layer, int(y[i]))].append(emb[i].detach())
 
 
-class DecoderBasedScorers(Scorer):
+class OutputBasedScorers(Scorer):
     def __init__(self, mode: str = "input"):
         super().__init__()
         self.mode = mode
@@ -121,7 +155,7 @@ class DecoderBasedScorers(Scorer):
         raise NotImplementedError
 
 
-class LikelihoodScorer(DecoderBasedScorers):
+class LikelihoodScorer(OutputBasedScorers):
     """
     Filters a batch of output based on the likelihood of the first sequence returned for each input.
     """
@@ -150,7 +184,7 @@ class LikelihoodScorer(DecoderBasedScorers):
         return f"{self.__class__.__name__}(mode={self.mode})"
 
 
-class SequenceSoftMaxScorerBase(DecoderBasedScorers):
+class SequenceSoftMaxScorerBase(OutputBasedScorers):
     def __init__(
         self,
         temperature: float = 2.0,

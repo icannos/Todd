@@ -5,11 +5,10 @@ from typing import List, Tuple, Dict, Optional
 import torch
 from transformers.modeling_outputs import ModelOutput
 
-from .basescorers import EncoderBasedScorers
-from .utils import extract_batch_embeddings
+from .basescorers import HiddenStateBasedScorers
 
 
-class MahalanobisScorer(EncoderBasedScorers):
+class MahalanobisScorer(HiddenStateBasedScorers):
     """
     Filters a batch of outputs based on the Mahalanobis distance of the first sequence returned for each input.
     """
@@ -17,14 +16,13 @@ class MahalanobisScorer(EncoderBasedScorers):
     def __init__(
         self,
         layers: List[int] = (-1,),
+        **kwargs,
     ):
-        super().__init__()
+        super().__init__(kwargs)
         self.covs = None
         self.means = None
 
         self.layers = set(layers)
-
-        self.accumulated_embeddings = defaultdict(list)
         self.score_names = []
 
     def accumulate(self, output: ModelOutput, y: Optional[List[int]] = None) -> None:
@@ -36,10 +34,8 @@ class MahalanobisScorer(EncoderBasedScorers):
         @param y: classes of the input sequences (used to build per class references)
         """
 
-        per_layer_embeddings, _ = extract_batch_embeddings(
-            per_layer_embeddings=self.accumulated_embeddings,
+        self.extract_batch_embeddings(
             output=output,
-            layers=self.layers,
             y=y,
         )
 
@@ -94,7 +90,7 @@ class MahalanobisScorer(EncoderBasedScorers):
             # We take only the first token embedding as representation of the sequence for now
             # It avoids the problem of the different length of the sequences when trying to take the average embedding
             # emb : (batch_size, embedding_size)
-            emb = output["encoder_hidden_states"][layer][:, 0, ...]
+            emb = output[self.chosen_state][layer][:, 0, ...]
             delta = emb - self.means[(layer, cl)]
             cov = self.covs[(layer, cl)]
 
@@ -143,10 +139,9 @@ class MahalanobisScorer(EncoderBasedScorers):
         return f"MahalanobisFilter(layers={self.layers})"
 
 
-class CosineProjectionScorer(EncoderBasedScorers):
-    def __init__(self, layers: List[int] = (-1,)):
-        super().__init__()
-
+class CosineProjectionScorer(HiddenStateBasedScorers):
+    def __init__(self, layers: List[int] = (-1,), **kwargs):
+        super().__init__(kwargs)
         self.layers = set(layers)
         self.accumulated_embeddings = defaultdict(list)
 
@@ -154,11 +149,8 @@ class CosineProjectionScorer(EncoderBasedScorers):
         self.score_names = []
 
     def accumulate(self, output: ModelOutput, y: Optional[List[int]] = None) -> None:
-
-        per_layer_embeddings, _ = extract_batch_embeddings(
-            per_layer_embeddings=self.accumulated_embeddings,
+        self.extract_batch_embeddings(
             output=output,
-            layers=self.layers,
             y=y,
         )
 
@@ -193,7 +185,7 @@ class CosineProjectionScorer(EncoderBasedScorers):
             # We take only the first token embedding as representation of the sequence for now
             # It avoids the problem of the different length of the sequences when trying to take the average embedding
             # emb : (batch_size, embedding_size)
-            emb = output["encoder_hidden_states"][layer][:, 0, ...]
+            emb = output[self.chosen_state][layer][:, 0, ...]
             emb = emb[:, None, :]
             ref = self.reference_embeddings[(layer, cl)][None, :, :]
 

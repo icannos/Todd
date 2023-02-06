@@ -1,1 +1,1 @@
-from .embeddings_extractors import extract_batch_embeddings, extract_embeddings, extract_vocab_probs
+from .embeddings_extractors import extract_vocab_probs
