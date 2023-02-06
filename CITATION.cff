@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+- family-names: "Darrin"
+  given-names: "Maxime"
+  orcid: "https://orcid.org/0000-0002-7158-5873"
+- family-names: "Faysse"
+  given-names: "Manuel"
+- family-names: "Staerman"
+  given-names: "Guillaume"
+- family-names: "Picot"
+  given-names: "Marine"
+- family-names: "Dadalto Camara Gomez"
+  given-names: "Eduardo"
+ - family-names: "Colombo"
+    given-names: "Pierre"
+
+title: "Todd: A tool for text OOD detection."
+version: 0.0.1
+date-released: 2023-02-01
+url: "https://github.com/icannos/Todd"
