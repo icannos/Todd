@@ -65,7 +65,7 @@ def extract_embeddings(
             # Retrieves hidden states from the model
             inputs = tokenizer(
                 batch["source"], padding=True, truncation=True, return_tensors="pt"
-            )
+            ).to(model.device)
             output = model.generate(
                 **inputs,
                 return_dict_in_generate=True,
