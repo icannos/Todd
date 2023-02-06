@@ -12,6 +12,18 @@ and filters leverage these scores to produce masks to decide what to keep or rej
 For benchmarking purpose we tend to only use scorers to dump the scores and compte statistics. 
 In practice though, we would want to use filters to select the best candidates.
 
+## Citing this work
+
+```
+@software{Darrin_Todd_A_tool_2023,
+author = {Darrin, Maxime and Faysse, Manuel and Staerman, Guillaume and Picot, Marine and Dadalto Camara Gomez, Eduardo and Colombo, Pierre},
+month = {2},
+title = {{Todd: A tool for text OOD detection.}},
+url = {https://github.com/icannos/Todd},
+version = {0.0.1},
+year = {2023}
+}
+```
 
 ## Installation
 
