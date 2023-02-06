@@ -1,75 +1,12 @@
 from collections import defaultdict
 from pathlib import Path
-from typing import List, Tuple, Dict, Optional, Iterable
+from typing import List, Tuple, Dict, Optional
 
 import torch
-from torch.utils.data import DataLoader
-from transformers.generation_utils import ModelOutput
+from transformers.modeling_outputs import ModelOutput
 
 from .basescorers import EncoderBasedScorers
-
-
-def extract_batch_embeddings(
-    per_layer_embeddings,
-    output,
-    y: Optional[torch.Tensor] = None,
-    layers: Optional[Iterable[int]] = None,
-    hidden_states="encoder_hidden_states",
-) -> Tuple[Dict[Tuple[int, int], List[torch.Tensor]], torch.Tensor]:
-    if layers is None:
-        layers = range(len(output[hidden_states]))
-    if layers is not None:
-        N_layers = len(output[hidden_states])
-        layers = [l if l >= 0 else N_layers + l for l in layers]
-
-    if y is None:
-        y = torch.zeros(output[hidden_states][0].shape[0], dtype=torch.long)
-
-    for layer in layers:
-        # We use the first token embedding as representation of the sequence for now
-        # It avoids the problem of the different length of the sequences when trying to take the average embedding
-        emb = output[hidden_states][layer][:, 0, ...]
-
-        # Append the embeddings to the list of embeddings for the layer
-        for i in range(emb.shape[0]):
-            per_layer_embeddings[(layer, int(y[i]))].append(emb[i].detach().cpu())
-
-    return per_layer_embeddings, y
-
-
-def extract_embeddings(
-    model, tokenizer, dataloader: DataLoader, layers: Optional[List[int]] = None
-) -> Tuple[Dict[Tuple[int, int], List[torch.Tensor]], torch.Tensor]:
-    """
-    Extract the embeddings of the input sequences. Not classified per class.
-    :param layers: List of layers to return. If None, return all layers.
-    :param model: huggingface model
-    :param tokenizer: huggingface tokenizer
-    :param dataloader: dataloader of the input sequences
-    :return: a dictionary with the embeddings of the input sequences
-    """
-    per_layer_embeddings = defaultdict(list)
-
-    with torch.no_grad():
-        for batch in dataloader:
-            # Retrieves hidden states from the model
-            inputs = tokenizer(
-                batch["source"], padding=True, truncation=True, return_tensors="pt"
-            )
-            output = model.generate(
-                **inputs,
-                return_dict_in_generate=True,
-                output_hidden_states=True,
-                output_scores=True,
-            )
-
-            per_layer_embeddings, y = extract_batch_embeddings(
-                per_layer_embeddings,
-                output,
-                layers=layers,
-            )
-
-    return per_layer_embeddings, y
+from .utils import extract_batch_embeddings
 
 
 class MahalanobisScorer(EncoderBasedScorers):
@@ -105,9 +42,6 @@ class MahalanobisScorer(EncoderBasedScorers):
             layers=self.layers,
             y=y,
         )
-
-        for key, ref_list in per_layer_embeddings.items():
-            self.accumulated_embeddings[key].extend(ref_list)
 
     def fit(
         self,
@@ -217,6 +151,7 @@ class CosineProjectionScorer(EncoderBasedScorers):
         self.accumulated_embeddings = defaultdict(list)
 
         self.reference_embeddings: Dict[Tuple[int, int], Optional[torch.Tensor]] = {}
+        self.score_names = []
 
     def accumulate(self, output: ModelOutput, y: Optional[List[int]] = None) -> None:
 
@@ -226,9 +161,6 @@ class CosineProjectionScorer(EncoderBasedScorers):
             layers=self.layers,
             y=y,
         )
-
-        for key, ref_list in per_layer_embeddings.items():
-            self.accumulated_embeddings[key].extend(ref_list)
 
     def fit(
         self,
@@ -245,6 +177,7 @@ class CosineProjectionScorer(EncoderBasedScorers):
 
         # free some space since we now have stored everything in the tensor
         del self.accumulated_embeddings
+        self.score_names = [f"{layer}_{cl}" for layer,cl in self.reference_embeddings.keys()]
 
     def compute_per_layer_per_class_disimilarity(
         self, output: ModelOutput
