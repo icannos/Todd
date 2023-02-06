@@ -14,6 +14,8 @@ In practice though, we would want to use filters to select the best candidates.
 
 ## Citing this work
 
+[![DOI](https://zenodo.org/badge/557047099.svg)](https://zenodo.org/badge/latestdoi/557047099)
+
 ```
 @software{Darrin_Todd_A_tool_2023,
 author = {Darrin, Maxime and Faysse, Manuel and Staerman, Guillaume and Picot, Marine and Dadalto Camara Gomez, Eduardo and Colombo, Pierre},
