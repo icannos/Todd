@@ -87,10 +87,16 @@ ScorerType = TypeVar("ScorerType", bound=Scorer)
 
 class HiddenStateBasedScorers(Scorer):
     def __init__(self, kwargs):
+        """
+        :param chosen_state: name of the state to use for the computation of the scores.
+        Can be encoder_hidden_states or decoder_hidden_states
+        """
         super().__init__()
         self.chosen_state = kwargs.get("chosen_state", "encoder_hidden_states")
+        self.use_first_token_only = kwargs.get("use_first_token_only", True)
         self.accumulated_embeddings = defaultdict(list)
         self.layers = None
+        self.accumulation_device = "cpu"
 
     def extract_batch_embeddings(
         self,
@@ -101,25 +107,39 @@ class HiddenStateBasedScorers(Scorer):
         """
         Append new layer embeddings from the output to the provided dictionnary
         """
-        if self.layers is None:
-            layers = range(len(output[self.chosen_state]))
-        if self.layers is not None:
+        layers = self.layers
+
+        # Update accumulation device if needed
+        self.accumulation_device = output["encoder_hidden_states"][-1].device
+
+        if self.chosen_state=="decoder_hidden_states":
+            data = torch.stack([torch.stack(list(x)) for x in output["decoder_hidden_states"]]).squeeze(3).permute(1,2,0,3)
+        else:
+            data = output[self.chosen_state]
+
+        if layers is None:
+            layers = range(len(data))
+        if layers is not None:
             # TODO: make clearer
-            N_layers = len(output[self.chosen_state])
-            layers = [l if l >= 0 else N_layers + l for l in self.layers]
+            N_layers = len(data)
+            layers = [l if l >= 0 else N_layers + l for l in layers]
 
-        if y is None:
-            y = torch.zeros(output[self.chosen_state][0].shape[0], dtype=torch.long)
-
-        for layer in self.layers:
+        for layer in layers:
             # We use the first token embedding as representation of the sequence for now
             # It avoids the problem of the different length of the sequences when trying to take the average embedding
-            emb = output[self.chosen_state][layer][:, 0, ...]
+
+            if self.use_first_token_only:
+                emb = data[layer][:, 0, ...]
+            else:
+                dim = data[layer].shape[-1]
+                emb = data[layer].detach().reshape(-1, dim)
 
             # Append the embeddings to the list of embeddings for the layer
-            for i in range(emb.shape[0]):
-                # per_layer_embeddings[(layer, int(y[i]))].append(emb[i].detach().cpu())
-                self.accumulated_embeddings[(layer, int(y[i]))].append(emb[i].detach())
+            if y is None:
+                self.accumulated_embeddings[(layer, 0)].extend(emb.detach().cpu())
+            else:
+                for i in range(emb.shape[0]):
+                    self.accumulated_embeddings[(layer, int(y[i]))].append(emb[i].detach().cpu())
 
 
 class OutputBasedScorers(Scorer):
