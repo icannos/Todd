@@ -200,7 +200,7 @@ class SequenceRenyiNegDataFittedScorer(SequenceRenyiNegScorer):
         Y = probabilities.view(-1, probabilities.shape[2])
 
         # Maybe best to ignore pad and special tokens
-        per_step_scores = self._renyi_div(Y).view(
+        per_step_scores = torch.nan_to_num(self._renyi_div(Y), posinf=10000, neginf=-10000).view(
             batch_size, self.num_return_sequences, -1
         )
 
