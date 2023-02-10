@@ -240,7 +240,7 @@ class CosineProjectionScorer(HiddenStateBasedScorers):
                 tmp_scores =  -cosine_scores.view(input_size[0], input_size[1], ref.shape[1]).min(dim=2)[0].max(dim=1)[0].cpu()
 
             # Max over beams
-            scores[(layer, cl)] = tmp_scores.view(batch_size, -1).max(dim=1)[0]
+            scores[(layer, cl)] = tmp_scores.view(batch_size, -1).max(dim=1)[0].cpu()
         return scores
 
     def compute_scores(self, output: ModelOutput):
