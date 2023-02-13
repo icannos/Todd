@@ -21,9 +21,6 @@ class BartQueryScorer(QueryBasedScorer):
         if self.prefix is not None:
             sentence = sentence.replace(self.prefix, "")
 
-        model = model if model is not None else self.model
-        tokenizer = tokenizer if tokenizer is not None else self.tokenizer
-
         assert isinstance(model, BartForConditionalGeneration)
 
         sentences, labels = self.return_masked_input(sentence, tokenizer)

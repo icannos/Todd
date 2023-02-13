@@ -13,6 +13,9 @@ class QueryBasedScorer:
         raise NotImplementedError
 
     def score_sentences(self, sentences: List[str], model=None, tokenizer=None):
+        model = model if self.model is None else self.model
+        tokenizer = tokenizer if self.tokenizer is None else self.tokenizer
+
         return [self.score_sentence(sentence, model, tokenizer) for sentence in sentences]
 
     def accumulate(self, output):
