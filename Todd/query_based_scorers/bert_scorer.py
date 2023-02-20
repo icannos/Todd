@@ -35,9 +35,10 @@ class BertQueryScorer(QueryBasedScorer):
                 # Here we only extract the loss for the first word of the masked prediction
                 if self.loss_on_first_word_only:
                     masked_index = (batch_sentences == tokenizer.mask_token_id).nonzero()
-                    loss = max(loss,
-                               self.loss_fct(lm_logits.view(-1, lm_logits.size(-1)), batch_labels.view(-1)).view(len(batch_labels),-1)[
-                                   masked_index[:, 0], masked_index[:, 1]].max().item())
+                    if masked_index.numel() != 0:
+                        loss = max(loss,
+                                   self.loss_fct(lm_logits.view(-1, lm_logits.size(-1)), batch_labels.view(-1)).view(len(batch_labels),-1)[
+                                       masked_index[:, 0], masked_index[:, 1]].max().item())
                 else:
                     loss = max(loss, self.loss_fct(lm_logits.view(-1, lm_logits.size(-1)), batch_labels.view(-1)).view(len(batch_labels), -1).max().item())
         return loss
