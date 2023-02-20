@@ -1,12 +1,12 @@
 import torch
-from transformers import BartForConditionalGeneration, BartTokenizer
+from transformers import BertTokenizer, BertForMaskedLM
 from Todd.query_based_scorers.query_based_scorer import QueryBasedScorer
 
 
-class BartQueryScorer(QueryBasedScorer):
+class BertQueryScorer(QueryBasedScorer):
     def __init__(self,
-                 model: BartForConditionalGeneration = None,
-                 tokenizer: BartTokenizer = None,
+                 model: BertForMaskedLM = None,
+                 tokenizer: BertTokenizer = None,
                  batch_size: int = 32,
                  prefix: str = None,
                  loss_on_first_word_only: bool = True,
@@ -21,7 +21,7 @@ class BartQueryScorer(QueryBasedScorer):
         if self.prefix is not None:
             sentence = sentence.replace(self.prefix, "")
 
-        assert isinstance(model, BartForConditionalGeneration)
+        assert isinstance(model, BertForMaskedLM)
 
         sentences, labels = self.return_masked_input(sentence, tokenizer)
         loss = 0
@@ -57,4 +57,4 @@ class BartQueryScorer(QueryBasedScorer):
         return input_ids, labels
 
     def __format__(self, format_spec):
-        return f"BartQueryScorer(loss_on_first_word_only={self.loss_on_first_word_only})"
+        return f"BertQueryScorer(loss_on_first_word_only={self.loss_on_first_word_only})"
