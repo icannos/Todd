@@ -25,6 +25,36 @@ def mask_pad_tokens(
     return mask
 
 
+def extract_scores_sequences(
+    output: ModelOutput, num_return_sequences, num_beams
+) -> torch.Tensor:
+    """
+    Extract sequence of probability distributions associated to the returned sequences.
+    It is necessary since in some cases num_return_sequences does not only crop the number of beams but instead
+    the generate function runs a beam search for each sequence.
+    """
+    batch_size = output.sequences.shape[0] // num_return_sequences
+
+    scores = torch.stack(output.scores)
+    actual_num_beams = scores.shape[1]
+
+    if actual_num_beams == num_beams * batch_size:
+        pass
+
+    elif actual_num_beams == num_beams * batch_size * num_return_sequences:
+        scores = scores.view(
+            scores.shape[0],
+            batch_size,
+            num_beams,
+            num_return_sequences,
+            scores.shape[-1],
+        )
+        scores = scores[:, :, 0, :, :]
+        scores = scores.view(scores.shape[0], -1, scores.shape[-1])
+
+    return scores
+
+
 def mean_score_remove_padding(
     sequences: torch.Tensor, scores: torch.Tensor, pad_token_id: int
 ) -> torch.Tensor:

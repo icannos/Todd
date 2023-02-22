@@ -3,7 +3,11 @@ from typing import Dict, List, Union
 import torch
 from transformers.modeling_outputs import ModelOutput
 
-from .basescorers import SequenceSoftMaxScorerBase, mask_pad_tokens
+from .basescorers import (
+    SequenceSoftMaxScorerBase,
+    mask_pad_tokens,
+    extract_scores_sequences,
+)
 
 
 class SequenceRenyiNegScorer(SequenceSoftMaxScorerBase):
@@ -42,15 +46,24 @@ class SequenceRenyiNegScorer(SequenceSoftMaxScorerBase):
 
         # Retrieve probability distribution over the vocabulary for all sequences
         # We don't keep the first score since it gives information ont the SOS token
-        probabilities = self.mk_probability(torch.stack(output.scores))
+        scores = extract_scores_sequences(
+            output,
+            num_beams=self.num_beam,
+            num_return_sequences=self.num_return_sequences,
+        )
+        probabilities = self.mk_probability(scores)
+
+        print("Seq Renyi Neg Scorer", probabilities.shape)
+        print("Seq Renyi Neg Scorer", output.sequences.shape)
 
         # If alpha is 1, we compute the KL divergence
         if self.alpha == 1:
             per_step_scores = torch.log(probabilities) * probabilities
-            per_step_scores = per_step_scores.sum(-1) + torch.log(
-                probabilities.shape[-1]
+            per_step_scores = per_step_scores.sum(-1)
+            per_step_scores += torch.log(
+                torch.ones_like(per_step_scores).to(probabilities.device)
+                * probabilities.shape[-1]
             )
-
         else:
             # (num_gen_tokens, batch_size*numbeam*numreturn, 1)
             # Renyi divergence against the uniform distribution
@@ -60,10 +73,13 @@ class SequenceRenyiNegScorer(SequenceSoftMaxScorerBase):
                 torch.ones_like(per_step_scores) * probabilities.shape[-1]
             )
             probabilities *= 1 / (self.alpha - 1)
-            per_step_scores = per_step_scores.transpose(0, 1)
-            per_step_scores = per_step_scores.reshape(
-                batch_size, self.num_return_sequences, -1
-            )
+
+        per_step_scores = per_step_scores.transpose(0, 1)
+        per_step_scores = per_step_scores.reshape(
+            batch_size, self.num_return_sequences, -1
+        )
+
+        print("Seq Renyi Neg Scorer", per_step_scores.shape)
 
         return per_step_scores
 
@@ -175,7 +191,13 @@ class SequenceRenyiNegDataFittedScorer(SequenceRenyiNegScorer):
 
         # Retrieve probability distribution over the vocabulary for all sequences
         # We don't keep the first score since it gives information ont the SOS token
-        probabilities = self.mk_probability(torch.stack(output.scores))
+
+        scores = extract_scores_sequences(
+            output,
+            num_beams=self.num_beam,
+            num_return_sequences=self.num_return_sequences,
+        )
+        probabilities = self.mk_probability(scores)
 
         # (num_gen_tokens, batch_size*numbeam*numreturn, 1)
 
@@ -221,7 +243,13 @@ class BeamRenyiInformationProjection(SequenceSoftMaxScorerBase):
 
         self.batch_size = output.sequences.shape[0] // self.num_return_sequences
         # [len_gen, batch_size*numreturn, vocab_size]
-        probabilities = self.mk_probability(torch.stack(output.scores))
+
+        scores = extract_scores_sequences(
+            output,
+            num_beams=self.num_beams,
+            num_return_sequences=self.num_return_sequences,
+        )
+        probabilities = self.mk_probability(scores)
 
         # [batch_size*numreturn, len_gen, vocab_size]
         probabilities = probabilities.transpose(0, 1)
