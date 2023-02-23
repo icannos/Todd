@@ -70,7 +70,17 @@ def extract_decoder_hidden_states(
     scores = output.scores
     sequences = output.sequences
     beam_indices = output.beam_indices if hasattr(output, "beam_indices") else None
-    decoder_hidden_states = output.decoder_hidden_states
+
+    if isinstance(output, BeamSearchDecoderOnlyOutput) or isinstance(
+        output, BeamSampleDecoderOnlyOutput
+    ):
+        hidden_states = output.hidden_states
+    elif isinstance(output, BeamSearchEncoderDecoderOutput) or isinstance(
+        output, BeamSampleEncoderDecoderOutput
+    ):
+        hidden_states = output.decoder_hidden_states
+    else:
+        raise ValueError("Unknown output type")
 
     # 1. In absence of `beam_indices`, we can assume that we come from e.g. greedy search, which is equivalent
     # to a beam search approach were the first (and only) beam is always selected
