@@ -18,11 +18,10 @@ def mask_pad_tokens(
     :param pad_token_id: id of the padding token
     :return: (*, seq_len) tensor of 0s and 1s
     """
-
-    # Todo: weird check
-    # Sometime scores and sequences gen size are different and i have no idea why
+    # Sometime scores and sequences gen size are different for decoders
+    # (sequences include the original prompt, scores don't)
     if sequences.shape[1] != scores.shape[1]:
-        mask = sequences[:, :-1] != pad_token_id
+        mask = sequences[:, -scores.shape[1]:] != pad_token_id
     else:
         mask = sequences != pad_token_id
 
@@ -134,8 +133,7 @@ class HiddenStateBasedScorers(Scorer):
             if self.use_first_token_only:
                 emb = hidden_state[:, 0, ...]
             else:
-                dim = hidden_state.shape[-1]
-                emb = hidden_state.detach().reshape(-1, dim)
+                emb = hidden_state.mean(dim=1)
 
             # Append the embeddings to the list of embeddings for the layer
             if y is None:

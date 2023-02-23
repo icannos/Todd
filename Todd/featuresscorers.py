@@ -102,7 +102,7 @@ class MahalanobisScorer(HiddenStateBasedScorers):
             if not self.use_first_token_only:
                 emb = hidden_state[:, 0, ...]
             else:
-                emb = hidden_state.reshape(-1, hidden_state.shape[2])
+                emb = hidden_state.mean(dim=1)
             delta = emb - self.means[(layer, cl)]
             cov = self.covs[(layer, cl)]
 
@@ -219,28 +219,18 @@ class CosineProjectionScorer(HiddenStateBasedScorers):
 
             if self.use_first_token_only:
                 emb = hidden_state[:, 0, ...]
-                emb = emb[:, None, :].view(-1, 1, dim)
-                ref = self.reference_embeddings[(layer, cl)][None, :, :].to(self.accumulation_device).view(1, -1, dim)
-
-                # Compute the cosine similarity between the embedding and the mean
-                cosine_scores = torch.nn.functional.cosine_similarity(emb, ref, dim=-1)
-
-                # We take the max so it's an OOD score: larger => more OOD
-                # The max corresponds to the closest reference embedding, so the smallest distance to the distribution
-                tmp_scores = -cosine_scores.max(dim=1)[0].cpu()
-
             else:
-                emb = hidden_state
-                emb = emb[:, None, :].reshape(-1, 1, dim)
-                ref = self.reference_embeddings[(layer, cl)][None, :, :].to(self.accumulation_device).view(1, -1, dim)
+                emb = hidden_state.mean(dim=1)
 
-                # Compute the cosine similarity between the embedding and the mean
-                cosine_scores = torch.nn.functional.cosine_similarity(emb, ref, dim=-1)
-                # We take the max so it's an OOD score: larger => more OOD
-                # The max corresponds to the closest reference embedding, so the smallest distance to the distribution
+            emb = emb[:, None, :].view(-1, 1, dim)
+            ref = self.reference_embeddings[(layer, cl)][None, :, :].to(self.accumulation_device).view(1, -1, dim)
 
-                # The furthest word in each input, for per sentence is needed
-                tmp_scores = -cosine_scores.view(input_size[0], input_size[1], ref.shape[1]).min(dim=2)[0].max(dim=1)[0].cpu()
+            # Compute the cosine similarity between the embedding and the mean
+            cosine_scores = torch.nn.functional.cosine_similarity(emb, ref, dim=-1)
+
+            # We take the max so it's an OOD score: larger => more OOD
+            # The max corresponds to the closest reference embedding, so the smallest distance to the distribution
+            tmp_scores = -cosine_scores.max(dim=1)[0].cpu()
 
             # Max over beams
             if batch_size:
