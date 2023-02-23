@@ -5,6 +5,7 @@ from typing import List, Tuple, Dict, Optional
 import torch
 from transformers.modeling_outputs import ModelOutput
 
+from .utils.output_processing import extract_hidden_state
 from .basescorers import HiddenStateBasedScorers
 
 
@@ -88,23 +89,20 @@ class MahalanobisScorer(HiddenStateBasedScorers):
         """
         scores: Dict[Tuple[int, int], torch.Tensor] = {}
 
-        if self.chosen_state=="decoder_hidden_states":
-            data = torch.stack([torch.stack(list(x)) for x in output["decoder_hidden_states"]]).squeeze(3).permute(1,2,0,3).detach()
-        else:
-            data = output[self.chosen_state]
-
-        batch_size = output.encoder_hidden_states[0].shape[0]
-        del output
+        # TODO: Will not work for decoder only models
+        batch_size = output.encoder_hidden_states[0].shape[0] if "encoder_hidden_states" in output.keys() else None
 
         for layer, cl in self.means.keys():
+            hidden_state = extract_hidden_state(output, self.chosen_state, layer)
+
             # We take only the first token embedding as representation of the sequence for now
             # It avoids the problem of the different length of the sequences when trying to take the average embedding
             # emb : (batch_size, embedding_size)
 
             if not self.use_first_token_only:
-                emb = data[layer][:, 0, ...]
+                emb = hidden_state[:, 0, ...]
             else:
-                emb = data[layer].reshape(-1, data[layer].shape[2])
+                emb = hidden_state.reshape(-1, hidden_state.shape[2])
             delta = emb - self.means[(layer, cl)]
             cov = self.covs[(layer, cl)]
 
@@ -112,7 +110,10 @@ class MahalanobisScorer(HiddenStateBasedScorers):
             m = torch.bmm(delta[:, None, :], prod[:, :, None]).squeeze(-1).squeeze(-1)
 
             # Take max per input # TODO: choice of aggregator
-            scores[(layer, cl)] = m.view(batch_size, -1).max(dim=1)[0].cpu()
+            if batch_size:
+                scores[(layer, cl)] = m.view(batch_size, -1).max(dim=1)[0].cpu()
+            else:
+                scores[(layer, cl)] = m.cpu()
 
         return scores
 
@@ -203,19 +204,18 @@ class CosineProjectionScorer(HiddenStateBasedScorers):
         """
         scores: Dict[Tuple[int, int], torch.Tensor] = {}
 
-        if self.chosen_state=="decoder_hidden_states":
-            data = torch.stack([torch.stack(list(x)) for x in output["decoder_hidden_states"]]).squeeze(3).permute(1,2,0,3)
-        else:
-            data = output[self.chosen_state]
-
         for layer, cl in self.reference_embeddings.keys():
-            dim = data[layer].shape[-1]
-
-            input_size = data[0].shape
-            batch_size = output.encoder_hidden_states[layer].shape[0]
+            hidden_state = extract_hidden_state(
+                output,
+                self.chosen_state,
+                hidden_layer_idx=layer
+            )
+            dim = hidden_state.shape[-1]
+            input_size = hidden_state.shape
+            batch_size = output.encoder_hidden_states[layer].shape[0] if "encoder_hidden_states" in output.keys() else None
 
             if self.use_first_token_only:
-                emb = data[layer][:, 0, ...]
+                emb = hidden_state[:, 0, ...]
                 emb = emb[:, None, :].view(-1, 1, dim)
                 ref = self.reference_embeddings[(layer, cl)][None, :, :].to(self.accumulation_device).view(1, -1, dim)
 
@@ -227,7 +227,7 @@ class CosineProjectionScorer(HiddenStateBasedScorers):
                 tmp_scores = -cosine_scores.max(dim=1)[0].cpu()
 
             else:
-                emb = data[layer]
+                emb = hidden_state
                 emb = emb[:, None, :].reshape(-1, 1, dim)
                 ref = self.reference_embeddings[(layer, cl)][None, :, :].to(self.accumulation_device).view(1, -1, dim)
 
@@ -237,10 +237,14 @@ class CosineProjectionScorer(HiddenStateBasedScorers):
                 # The max corresponds to the closest reference embedding, so the smallest distance to the distribution
 
                 # The furthest word in each input, for per sentence is needed
-                tmp_scores =  -cosine_scores.view(input_size[0], input_size[1], ref.shape[1]).min(dim=2)[0].max(dim=1)[0].cpu()
+                tmp_scores = -cosine_scores.view(input_size[0], input_size[1], ref.shape[1]).min(dim=2)[0].max(dim=1)[0].cpu()
 
             # Max over beams
-            scores[(layer, cl)] = tmp_scores.view(batch_size, -1).max(dim=1)[0].cpu()
+            if batch_size:
+                scores[(layer, cl)] = tmp_scores.view(batch_size, -1).max(dim=1)[0].cpu()
+            else:
+                scores[(layer, cl)] = tmp_scores.cpu()
+
         return scores
 
     def compute_scores(self, output: ModelOutput):

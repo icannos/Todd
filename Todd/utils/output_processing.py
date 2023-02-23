@@ -115,7 +115,7 @@ def extract_decoder_hidden_states(
     return decoder_hidden_states
 
 
-def return_hidden_state(output, chosen_state, hidden_layer_idx=-1):
+def extract_hidden_state(output, chosen_state, hidden_layer_idx=-1):
     if chosen_state == "encoder_hidden_states":
         return output["encoder_hidden_states"][hidden_layer_idx]
     return extract_decoder_hidden_states(

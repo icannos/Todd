@@ -6,6 +6,8 @@ from typing import Optional, Iterable, Tuple
 import torch
 from transformers.modeling_outputs import ModelOutput
 
+from .utils.output_processing import extract_hidden_state
+
 
 def mask_pad_tokens(
     sequences: torch.Tensor, scores: torch.Tensor, pad_token_id: int
@@ -108,31 +110,32 @@ class HiddenStateBasedScorers(Scorer):
         Append new layer embeddings from the output to the provided dictionnary
         """
         layers = self.layers
-
         # Update accumulation device if needed
-        self.accumulation_device = output[self.chosen_state][-1].device
+        self.accumulation_device = output.sequences[-1].device
 
-        if self.chosen_state=="decoder_hidden_states":
-            data = torch.stack([torch.stack(list(x)) for x in output["decoder_hidden_states"]]).squeeze(3).permute(1,2,0,3)
-        else:
-            data = output[self.chosen_state]
-
-        if layers is None:
-            layers = range(len(data))
-        if layers is not None:
-            # TODO: make clearer
-            N_layers = len(data)
-            layers = [l if l >= 0 else N_layers + l for l in layers]
+        # TODO: Check non-breaking; I removed it for clarity
+        # if layers is None:
+        #     layers = range(len(data))
+        # if layers is not None:
+        #     # TODO: make clearer
+        #     N_layers = len(data)
+        #     layers = [l if l >= 0 else N_layers + l for l in layers]
 
         for layer in layers:
+            hidden_state = extract_hidden_state(
+                output,
+                self.chosen_state,
+                hidden_layer_idx=layer
+            )
+
             # We use the first token embedding as representation of the sequence for now
             # It avoids the problem of the different length of the sequences when trying to take the average embedding
 
             if self.use_first_token_only:
-                emb = data[layer][:, 0, ...]
+                emb = hidden_state[:, 0, ...]
             else:
-                dim = data[layer].shape[-1]
-                emb = data[layer].detach().reshape(-1, dim)
+                dim = hidden_state.shape[-1]
+                emb = hidden_state.detach().reshape(-1, dim)
 
             # Append the embeddings to the list of embeddings for the layer
             if y is None:
