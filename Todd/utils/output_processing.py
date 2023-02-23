@@ -74,11 +74,11 @@ def extract_decoder_hidden_states(
     if isinstance(output, BeamSearchDecoderOnlyOutput) or isinstance(
         output, BeamSampleDecoderOnlyOutput
     ):
-        hidden_states = output.hidden_states
+        decoder_hidden_states = output.hidden_states
     elif isinstance(output, BeamSearchEncoderDecoderOutput) or isinstance(
         output, BeamSampleEncoderDecoderOutput
     ):
-        hidden_states = output.decoder_hidden_states
+        decoder_hidden_states = output.decoder_hidden_states
     else:
         raise ValueError("Unknown output type")
 
@@ -96,16 +96,16 @@ def extract_decoder_hidden_states(
     beam_indices_mask = beam_indices_mask[:, :max_beam_length]
     beam_indices[beam_indices_mask] = 0
 
-    seqlen = sequences.shape[1] - 1
+    # seqlen = sequences.shape[1] - 1
 
     # creating the output hidden_states representation in format:
     # [bsz * beam_width ; seqlen ; featdim]
     decoder_hidden_states = torch.stack(
         [
-            hidden_states[i][hidden_layer_idx][:, 0, :].index_select(
+            decoder_hidden_states[i][hidden_layer_idx][:, 0, :].index_select(
                 dim=0, index=beam_indices[:, i]  # reordering using the beam_indices
             )
-            for i in range(seqlen)
+            for i in range(len(scores))
         ]
     ).transpose(0, 1)
 
@@ -113,3 +113,12 @@ def extract_decoder_hidden_states(
     decoder_hidden_states[beam_indices_mask] = 0
 
     return decoder_hidden_states
+
+
+def extract_hidden_state(output, chosen_state, hidden_layer_idx=-1):
+    if chosen_state == "encoder_hidden_states":
+        return output["encoder_hidden_states"][hidden_layer_idx]
+    return extract_decoder_hidden_states(
+        output,
+        hidden_layer_idx=hidden_layer_idx
+    )

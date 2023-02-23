@@ -1,8 +1,12 @@
 from abc import ABC
+from collections import defaultdict
 from typing import TypeVar, Dict, List, Union
+from typing import Optional, Iterable, Tuple
 
 import torch
 from transformers.modeling_outputs import ModelOutput
+
+from .utils.output_processing import extract_hidden_state
 
 
 def mask_pad_tokens(
@@ -83,12 +87,65 @@ class Scorer(ABC):
 ScorerType = TypeVar("ScorerType", bound=Scorer)
 
 
-class EncoderBasedScorers(Scorer):
-    def __init__(self):
+class HiddenStateBasedScorers(Scorer):
+    def __init__(self, kwargs):
+        """
+        :param chosen_state: name of the state to use for the computation of the scores.
+        Can be encoder_hidden_states or decoder_hidden_states
+        """
         super().__init__()
+        self.chosen_state = kwargs.get("chosen_state", "encoder_hidden_states")
+        self.use_first_token_only = kwargs.get("use_first_token_only", True)
+        self.accumulated_embeddings = defaultdict(list)
+        self.layers = None
+        self.accumulation_device = "cpu"
+
+    def extract_batch_embeddings(
+        self,
+        output,
+        y: Optional[torch.Tensor] = None,
+        ) -> None:
+
+        """
+        Append new layer embeddings from the output to the provided dictionnary
+        """
+        layers = self.layers
+        # Update accumulation device if needed
+        self.accumulation_device = output.sequences[-1].device
+
+        # TODO: Check non-breaking; I removed it for clarity
+        # if layers is None:
+        #     layers = range(len(data))
+        # if layers is not None:
+        #     # TODO: make clearer
+        #     N_layers = len(data)
+        #     layers = [l if l >= 0 else N_layers + l for l in layers]
+
+        for layer in layers:
+            hidden_state = extract_hidden_state(
+                output,
+                self.chosen_state,
+                hidden_layer_idx=layer
+            )
+
+            # We use the first token embedding as representation of the sequence for now
+            # It avoids the problem of the different length of the sequences when trying to take the average embedding
+
+            if self.use_first_token_only:
+                emb = hidden_state[:, 0, ...]
+            else:
+                dim = hidden_state.shape[-1]
+                emb = hidden_state.detach().reshape(-1, dim)
+
+            # Append the embeddings to the list of embeddings for the layer
+            if y is None:
+                self.accumulated_embeddings[(layer, 0)].extend(emb.detach().cpu())
+            else:
+                for i in range(emb.shape[0]):
+                    self.accumulated_embeddings[(layer, int(y[i]))].append(emb[i].detach().cpu())
 
 
-class DecoderBasedScorers(Scorer):
+class OutputBasedScorers(Scorer):
     def __init__(self, mode: str = "input"):
         super().__init__()
         self.mode = mode
@@ -121,7 +178,7 @@ class DecoderBasedScorers(Scorer):
         raise NotImplementedError
 
 
-class LikelihoodScorer(DecoderBasedScorers):
+class LikelihoodScorer(OutputBasedScorers):
     """
     Filters a batch of output based on the likelihood of the first sequence returned for each input.
     """
@@ -150,7 +207,7 @@ class LikelihoodScorer(DecoderBasedScorers):
         return f"{self.__class__.__name__}(mode={self.mode})"
 
 
-class SequenceSoftMaxScorerBase(DecoderBasedScorers):
+class SequenceSoftMaxScorerBase(OutputBasedScorers):
     def __init__(
         self,
         temperature: float = 2.0,
