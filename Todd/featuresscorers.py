@@ -57,12 +57,12 @@ class MahalanobisScorer(HiddenStateBasedScorers):
 
         # Compute the means and covariance matrices of the embeddings
         self.means = {
-            (layer, cl): torch.stack(per_layer_embeddings[(layer, cl)]).to(self.accumulation_device).mean(dim=0)
+            (layer, cl): torch.stack(per_layer_embeddings[(layer, cl)]).float().mean(dim=0).to(self.accumulation_device)
             for layer, cl in per_layer_embeddings.keys()
             if -1 in self.layers or layer in self.layers
         }
         self.covs = {
-            (layer, cl): torch.stack(per_layer_embeddings[(layer, cl)], dim=1).to(self.accumulation_device).cov()
+            (layer, cl): torch.stack(per_layer_embeddings[(layer, cl)], dim=1).float().cov().to(self.accumulation_device)
             for layer, cl in per_layer_embeddings.keys()
             if -1 in self.layers or layer in self.layers
         }
