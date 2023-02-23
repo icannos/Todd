@@ -7,7 +7,7 @@ from .basescorers import (
     mask_pad_tokens,
 )
 
-from .utils.ouput_processing import (
+from .utils.output_processing import (
     extract_log_probability_distributions,
     GenerateOutputType,
 )
@@ -92,8 +92,8 @@ class SequenceRenyiNegScorer(SequenceSoftMaxScorerBase):
 
         per_step_scores = self.per_token_scores(output)
         anomaly_scores = self.aggregate_step_by_step_scores(
-            output.sequences,
-            per_step_scores,
+            output.sequences.cpu(),
+            per_step_scores.cpu(),
             self.num_return_sequences,
         )
 
@@ -200,9 +200,9 @@ class SequenceRenyiNegDataFittedScorer(SequenceRenyiNegScorer):
         Y = probabilities.view(-1, probabilities.shape[2])
 
         # Maybe best to ignore pad and special tokens
-        per_step_scores = self._renyi_div(Y).view(
+        per_step_scores = torch.nan_to_num(self._renyi_div(Y), posinf=10000, neginf=-10000).view(
             batch_size, self.num_return_sequences, -1
-        )
+        ).cpu()
 
         return per_step_scores
 
@@ -253,7 +253,7 @@ class BeamRenyiInformationProjection(SequenceSoftMaxScorerBase):
         prob_types = prob_types.view(self.batch_size, self.num_return_sequences, -1)
 
         # [batch_size, numreturn]
-        scores = self.projection_function(prob_types)
+        scores = self.projection_function(prob_types).cpu()
 
         return scores
 

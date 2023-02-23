@@ -1,1 +1,2 @@
-from .embeddings_extractors import extract_batch_embeddings, extract_embeddings, extract_vocab_probs
+from .output_processing import extract_decoder_hidden_states, extract_log_probability_distributions, \
+    extract_hidden_state

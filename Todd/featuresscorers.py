@@ -5,11 +5,11 @@ from typing import List, Tuple, Dict, Optional
 import torch
 from transformers.modeling_outputs import ModelOutput
 
-from .basescorers import EncoderBasedScorers
-from .utils import extract_batch_embeddings
+from .utils.output_processing import extract_hidden_state
+from .basescorers import HiddenStateBasedScorers
 
 
-class MahalanobisScorer(EncoderBasedScorers):
+class MahalanobisScorer(HiddenStateBasedScorers):
     """
     Filters a batch of outputs based on the Mahalanobis distance of the first sequence returned for each input.
     """
@@ -17,14 +17,13 @@ class MahalanobisScorer(EncoderBasedScorers):
     def __init__(
         self,
         layers: List[int] = (-1,),
+        **kwargs,
     ):
-        super().__init__()
+        super().__init__(kwargs)
         self.covs = None
         self.means = None
 
         self.layers = set(layers)
-
-        self.accumulated_embeddings = defaultdict(list)
         self.score_names = []
 
     def accumulate(self, output: ModelOutput, y: Optional[List[int]] = None) -> None:
@@ -36,10 +35,8 @@ class MahalanobisScorer(EncoderBasedScorers):
         @param y: classes of the input sequences (used to build per class references)
         """
 
-        per_layer_embeddings, _ = extract_batch_embeddings(
-            per_layer_embeddings=self.accumulated_embeddings,
+        self.extract_batch_embeddings(
             output=output,
-            layers=self.layers,
             y=y,
         )
 
@@ -60,15 +57,17 @@ class MahalanobisScorer(EncoderBasedScorers):
 
         # Compute the means and covariance matrices of the embeddings
         self.means = {
-            (layer, cl): torch.stack(per_layer_embeddings[(layer, cl)]).mean(dim=0)
+            (layer, cl): torch.stack(per_layer_embeddings[(layer, cl)]).float().mean(dim=0).to(self.accumulation_device)
             for layer, cl in per_layer_embeddings.keys()
             if -1 in self.layers or layer in self.layers
         }
         self.covs = {
-            (layer, cl): torch.stack(per_layer_embeddings[(layer, cl)], dim=1).cov()
+            (layer, cl): torch.stack(per_layer_embeddings[(layer, cl)], dim=1).float().cov().to(self.accumulation_device)
             for layer, cl in per_layer_embeddings.keys()
             if -1 in self.layers or layer in self.layers
         }
+
+        del self.accumulated_embeddings
 
         self.score_names = [
             f"layer_{layer}_class_{cl}" for layer, cl in self.means.keys()
@@ -90,18 +89,34 @@ class MahalanobisScorer(EncoderBasedScorers):
         """
         scores: Dict[Tuple[int, int], torch.Tensor] = {}
 
+        # TODO: Will not work for decoder only models
+        batch_size = output.encoder_hidden_states[0].shape[0] if "encoder_hidden_states" in output.keys() else None
+
         for layer, cl in self.means.keys():
+            hidden_state = extract_hidden_state(output, self.chosen_state, layer)
+
             # We take only the first token embedding as representation of the sequence for now
             # It avoids the problem of the different length of the sequences when trying to take the average embedding
             # emb : (batch_size, embedding_size)
-            emb = output["encoder_hidden_states"][layer][:, 0, ...]
+
+            if not self.use_first_token_only:
+                emb = hidden_state[:, 0, ...]
+            else:
+                emb = hidden_state.reshape(-1, hidden_state.shape[2])
             delta = emb - self.means[(layer, cl)]
             cov = self.covs[(layer, cl)]
+
+            delta = delta.float().cpu()
+            cov = cov.float().cpu()     # For size purposes
 
             prod = torch.linalg.solve(cov[None, :, :], delta[:, :, None]).squeeze(-1)
             m = torch.bmm(delta[:, None, :], prod[:, :, None]).squeeze(-1).squeeze(-1)
 
-            scores[(layer, cl)] = m
+            # Take max per input # TODO: choice of aggregator
+            if batch_size:
+                scores[(layer, cl)] = m.view(batch_size, -1).max(dim=1)[0].cpu()
+            else:
+                scores[(layer, cl)] = m.cpu()
 
         return scores
 
@@ -140,13 +155,19 @@ class MahalanobisScorer(EncoderBasedScorers):
         return scores
 
     def __format__(self, format_spec):
-        return f"MahalanobisFilter(layers={self.layers})"
+        return f"MahalanobisScorer(layers={self.layers},use_first_token_only={self.use_first_token_only},chosen_state={self.chosen_state})"
 
 
-class CosineProjectionScorer(EncoderBasedScorers):
-    def __init__(self, layers: List[int] = (-1,)):
-        super().__init__()
-
+class CosineProjectionScorer(HiddenStateBasedScorers):
+    def __init__(self, layers: List[int] = (-1,), **kwargs):
+        """
+        Scorer based on the cosine projection of the embeddings of the input sequences.
+        :param layers: Layers to use for the computation of the scores.
+        :param use_first_token_only: If True, only the first token of the sequence is used for the computation of the
+        scores. If false, all the tokens are used and we use the token most OOD to compute the score for each input sequence.
+        Be careful, this can be very slow and memory intensive.
+        """
+        super().__init__(kwargs)
         self.layers = set(layers)
         self.accumulated_embeddings = defaultdict(list)
 
@@ -154,11 +175,8 @@ class CosineProjectionScorer(EncoderBasedScorers):
         self.score_names = []
 
     def accumulate(self, output: ModelOutput, y: Optional[List[int]] = None) -> None:
-
-        per_layer_embeddings, _ = extract_batch_embeddings(
-            per_layer_embeddings=self.accumulated_embeddings,
+        self.extract_batch_embeddings(
             output=output,
-            layers=self.layers,
             y=y,
         )
 
@@ -190,18 +208,45 @@ class CosineProjectionScorer(EncoderBasedScorers):
         scores: Dict[Tuple[int, int], torch.Tensor] = {}
 
         for layer, cl in self.reference_embeddings.keys():
-            # We take only the first token embedding as representation of the sequence for now
-            # It avoids the problem of the different length of the sequences when trying to take the average embedding
-            # emb : (batch_size, embedding_size)
-            emb = output["encoder_hidden_states"][layer][:, 0, ...]
-            emb = emb[:, None, :]
-            ref = self.reference_embeddings[(layer, cl)][None, :, :]
+            hidden_state = extract_hidden_state(
+                output,
+                self.chosen_state,
+                hidden_layer_idx=layer
+            )
+            dim = hidden_state.shape[-1]
+            input_size = hidden_state.shape
+            batch_size = output.encoder_hidden_states[layer].shape[0] if "encoder_hidden_states" in output.keys() else None
 
-            # Compute the cosine similarity between the embedding and the mean
-            cosine_scores = torch.nn.functional.cosine_similarity(emb, ref, dim=-1)
+            if self.use_first_token_only:
+                emb = hidden_state[:, 0, ...]
+                emb = emb[:, None, :].view(-1, 1, dim)
+                ref = self.reference_embeddings[(layer, cl)][None, :, :].to(self.accumulation_device).view(1, -1, dim)
 
-            # We take the min so it's an OOD score: larger => more OOD
-            scores[(layer, cl)] = -cosine_scores.max(dim=-1)[0]
+                # Compute the cosine similarity between the embedding and the mean
+                cosine_scores = torch.nn.functional.cosine_similarity(emb, ref, dim=-1)
+
+                # We take the max so it's an OOD score: larger => more OOD
+                # The max corresponds to the closest reference embedding, so the smallest distance to the distribution
+                tmp_scores = -cosine_scores.max(dim=1)[0].cpu()
+
+            else:
+                emb = hidden_state
+                emb = emb[:, None, :].reshape(-1, 1, dim)
+                ref = self.reference_embeddings[(layer, cl)][None, :, :].to(self.accumulation_device).view(1, -1, dim)
+
+                # Compute the cosine similarity between the embedding and the mean
+                cosine_scores = torch.nn.functional.cosine_similarity(emb, ref, dim=-1)
+                # We take the max so it's an OOD score: larger => more OOD
+                # The max corresponds to the closest reference embedding, so the smallest distance to the distribution
+
+                # The furthest word in each input, for per sentence is needed
+                tmp_scores = -cosine_scores.view(input_size[0], input_size[1], ref.shape[1]).min(dim=2)[0].max(dim=1)[0].cpu()
+
+            # Max over beams
+            if batch_size:
+                scores[(layer, cl)] = tmp_scores.view(batch_size, -1).max(dim=1)[0].cpu()
+            else:
+                scores[(layer, cl)] = tmp_scores.cpu()
 
         return scores
 
@@ -234,3 +279,6 @@ class CosineProjectionScorer(EncoderBasedScorers):
         scores = self.compute_per_layer_per_class_disimilarity(output)
         scores = {f"{layer}_{cl}": scores[(layer, cl)] for layer, cl in scores.keys()}
         return scores
+
+    def __format__(self, format_spec):
+        return f"CosineProjectionScorer(layers={self.layers},use_first_token_only={self.use_first_token_only},chosen_state={self.chosen_state})"
