@@ -1,12 +1,15 @@
 from typing import Dict, List, Union
 
 import torch
-from transformers.modeling_outputs import ModelOutput
 
 from .basescorers import (
     SequenceSoftMaxScorerBase,
     mask_pad_tokens,
-    extract_scores_sequences,
+)
+
+from .utils.ouput_processing import (
+    extract_log_probability_distributions,
+    GenerateOutputType,
 )
 
 
@@ -34,7 +37,7 @@ class SequenceRenyiNegScorer(SequenceSoftMaxScorerBase):
 
     def per_token_scores(
         self,
-        output: ModelOutput,
+        output: GenerateOutputType,
     ):
         """
         :param output: ModelOutput object from huggingface generator. We need the scores and the generated sequences
@@ -46,15 +49,10 @@ class SequenceRenyiNegScorer(SequenceSoftMaxScorerBase):
 
         # Retrieve probability distribution over the vocabulary for all sequences
         # We don't keep the first score since it gives information ont the SOS token
-        scores = extract_scores_sequences(
-            output,
-            num_beams=self.num_beam,
-            num_return_sequences=self.num_return_sequences,
-        )
-        probabilities = self.mk_probability(scores)
 
-        print("Seq Renyi Neg Scorer", probabilities.shape)
-        print("Seq Renyi Neg Scorer", output.sequences.shape)
+        # (num_return_sequences*batch_size, num_gen_tokens, vocab_size)
+        scores = extract_log_probability_distributions(output)
+        probabilities = self.mk_probability(scores)
 
         # If alpha is 1, we compute the KL divergence
         if self.alpha == 1:
@@ -79,13 +77,15 @@ class SequenceRenyiNegScorer(SequenceSoftMaxScorerBase):
             batch_size, self.num_return_sequences, -1
         )
 
-        print("Seq Renyi Neg Scorer", per_step_scores.shape)
+        per_step_scores = per_step_scores.reshape(
+            batch_size, self.num_return_sequences, -1
+        )
 
         return per_step_scores
 
     def per_output_scores(
         self,
-        output: ModelOutput,
+        output: GenerateOutputType,
     ) -> torch.Tensor:
         # (batch_size, 1)
         # aggregate the scores over the generated tokens
@@ -101,7 +101,7 @@ class SequenceRenyiNegScorer(SequenceSoftMaxScorerBase):
 
     def per_input_scores(
         self,
-        output: ModelOutput,
+        output: GenerateOutputType,
     ) -> torch.Tensor:
         # (batch_size, num_return)
         per_output_scores = self.per_output_scores(output)
@@ -111,7 +111,7 @@ class SequenceRenyiNegScorer(SequenceSoftMaxScorerBase):
         return anomaly_scores
 
     def compute_scores_benchmark(
-        self, output: ModelOutput
+        self, output: GenerateOutputType
     ) -> Dict[str, Union[torch.Tensor, List]]:
         """
         Compute the Mahalanobis distance of the first sequence returned for each input.
@@ -179,7 +179,7 @@ class SequenceRenyiNegDataFittedScorer(SequenceRenyiNegScorer):
 
     def per_token_scores(
         self,
-        output: ModelOutput,
+        output: GenerateOutputType,
     ):
         """
         :param output: ModelOutput object from huggingface generator. We need the scores and the generated sequences
@@ -192,14 +192,10 @@ class SequenceRenyiNegDataFittedScorer(SequenceRenyiNegScorer):
         # Retrieve probability distribution over the vocabulary for all sequences
         # We don't keep the first score since it gives information ont the SOS token
 
-        scores = extract_scores_sequences(
-            output,
-            num_beams=self.num_beam,
-            num_return_sequences=self.num_return_sequences,
-        )
-        probabilities = self.mk_probability(scores)
+        scores = extract_log_probability_distributions(output)
 
-        # (num_gen_tokens, batch_size*numbeam*numreturn, 1)
+        probabilities = self.mk_probability(scores)
+        # Shape (num_return_sequences*batch_size, num_gen_tokens, vocab_size)
 
         Y = probabilities.view(-1, probabilities.shape[2])
 
@@ -237,24 +233,20 @@ class BeamRenyiInformationProjection(SequenceSoftMaxScorerBase):
 
     def per_output_scores(
         self,
-        output: ModelOutput,
+        output: GenerateOutputType,
     ) -> torch.Tensor:
         # Retieve probability distribution over the vocabulary for all sequences
 
         self.batch_size = output.sequences.shape[0] // self.num_return_sequences
         # [len_gen, batch_size*numreturn, vocab_size]
 
-        scores = extract_scores_sequences(
+        scores = extract_log_probability_distributions(
             output,
-            num_beams=self.num_beams,
-            num_return_sequences=self.num_return_sequences,
         )
         probabilities = self.mk_probability(scores)
 
-        # [batch_size*numreturn, len_gen, vocab_size]
-        probabilities = probabilities.transpose(0, 1)
-
         mask = mask_pad_tokens(output.sequences, probabilities, self.pad_token_id)
+
         prob_types = (probabilities * mask[:, :, None]).sum(1) / mask.sum(-1)[:, None]
 
         # [batch_size, numreturn, vocab_size]
@@ -306,7 +298,7 @@ class BeamRenyiInformationProjection(SequenceSoftMaxScorerBase):
 
     def per_input_scores(
         self,
-        output: ModelOutput,
+        output: GenerateOutputType,
     ) -> torch.Tensor:
 
         per_output_scores = self.per_output_scores(output)
@@ -314,7 +306,7 @@ class BeamRenyiInformationProjection(SequenceSoftMaxScorerBase):
         return per_output_scores.mean(-1)
 
     def compute_scores_benchmark(
-        self, output: ModelOutput
+        self, output: GenerateOutputType
     ) -> Dict[str, Union[torch.Tensor, List]]:
 
         if self.mode == "input":
