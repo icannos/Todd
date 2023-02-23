@@ -42,7 +42,7 @@ def extract_log_probability_distributions(
         beam_indices = torch.arange(scores[0].shape[0]).view(-1, 1).to(sequences.device)
         beam_indices = beam_indices.expand(-1, len(scores))
 
-    scores = torch.stack(scores).transpose(0, 1).contiguous()
+    scores = torch.stack(scores).transpose(0, 1)
 
     # 4. cut beam_indices to longest beam length
     beam_indices_mask = beam_indices < 0
