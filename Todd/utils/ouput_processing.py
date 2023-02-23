@@ -1,0 +1,105 @@
+from typing import Union
+
+import torch
+from transformers.generation import (
+    BeamSampleDecoderOnlyOutput,
+    BeamSearchDecoderOnlyOutput,
+    BeamSearchEncoderDecoderOutput,
+    BeamSampleEncoderDecoderOutput,
+)
+
+# Generate type output:
+
+GenerateOutputType = Union[
+    BeamSearchDecoderOnlyOutput,
+    BeamSearchEncoderDecoderOutput,
+    BeamSampleDecoderOnlyOutput,
+    BeamSampleEncoderDecoderOutput,
+]
+
+
+def extract_log_probability_distributions(
+    output: GenerateOutputType,
+) -> torch.Tensor:
+    """
+    output: GenerateOutputType = Union[
+        BeamSearchDecoderOnlyOutput,
+        BeamSearchEncoderDecoderOutput,
+        BeamSampleDecoderOnlyOutput,
+        BeamSampleEncoderDecoderOutput,
+    ]
+    Return the step by step probability distributions of the output sequences.
+    Shape: (num_return_sequences, sequence_length, vocab_size)
+    """
+
+    scores = output.scores
+    sequences = output.sequences
+    beam_indices = output.beam_indices if hasattr(output, "beam_indices") else None
+
+    # 1. In absence of `beam_indices`, we can assume that we come from e.g. greedy search, which is equivalent
+    # to a beam search approach were the first (and only) beam is always selected
+    if beam_indices is None:
+        beam_indices = torch.arange(scores[0].shape[0]).view(-1, 1).to(sequences.device)
+        beam_indices = beam_indices.expand(-1, len(scores))
+
+    scores = torch.stack(scores).transpose(0, 1).contiguous()
+
+    # 4. cut beam_indices to longest beam length
+    beam_indices_mask = beam_indices < 0
+    max_beam_length = (1 - beam_indices_mask.long()).sum(-1).max()
+    beam_indices = beam_indices[:, :max_beam_length]
+    beam_indices_mask = beam_indices_mask[:, :max_beam_length]
+
+    # 5. Set indices of beams that finished early to 0
+    # such indices will be masked correctly afterwards
+    beam_indices[beam_indices_mask] = 0
+
+    # 8. Compute scores
+    transition_scores = torch.gather(
+        scores, dim=0, index=beam_indices[..., None].expand(-1, -1, scores.shape[-1])
+    )
+
+    return transition_scores
+
+
+def extract_decoder_hidden_states(
+    output: GenerateOutputType,
+    hidden_layer_idx=-1,
+):
+
+    scores = output.scores
+    sequences = output.sequences
+    beam_indices = output.beam_indices if hasattr(output, "beam_indices") else None
+    decoder_hidden_states = output.decoder_hidden_states
+
+    # 1. In absence of `beam_indices`, we can assume that we come from e.g. greedy search, which is equivalent
+    # to a beam search approach were the first (and only) beam is always selected
+    if beam_indices is None:
+        beam_indices = torch.arange(scores[0].shape[0]).view(-1, 1).to(sequences.device)
+        beam_indices = beam_indices.expand(-1, len(scores))
+
+    # handling of the target length and preparing the masking for tokens
+    # outside of that length
+    beam_indices_mask = beam_indices < 0
+    max_beam_length = (1 - beam_indices_mask.long()).sum(-1).max()
+    beam_indices = beam_indices[:, :max_beam_length]
+    beam_indices_mask = beam_indices_mask[:, :max_beam_length]
+    beam_indices[beam_indices_mask] = 0
+
+    seqlen = sequences.shape[1] - 1
+
+    # creating the output hidden_states representation in format:
+    # [bsz * beam_width ; seqlen ; featdim]
+    decoder_hidden_states = torch.stack(
+        [
+            decoder_hidden_states[i][hidden_layer_idx][:, 0, :].index_select(
+                dim=0, index=beam_indices[:, i]  # reordering using the beam_indices
+            )
+            for i in range(seqlen)
+        ]
+    ).transpose(0, 1)
+
+    # setting to 0 the hidden_states were it doesn't make sense to have an output
+    decoder_hidden_states[beam_indices_mask] = 0
+
+    return decoder_hidden_states
