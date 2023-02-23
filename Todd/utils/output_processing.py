@@ -96,7 +96,7 @@ def extract_decoder_hidden_states(
     beam_indices_mask = beam_indices_mask[:, :max_beam_length]
     beam_indices[beam_indices_mask] = 0
 
-    seqlen = sequences.shape[1] - 1
+    # seqlen = sequences.shape[1] - 1
 
     # creating the output hidden_states representation in format:
     # [bsz * beam_width ; seqlen ; featdim]
@@ -105,7 +105,7 @@ def extract_decoder_hidden_states(
             hidden_states[i][hidden_layer_idx][:, 0, :].index_select(
                 dim=0, index=beam_indices[:, i]  # reordering using the beam_indices
             )
-            for i in range(seqlen)
+            for i in range(len(scores))
         ]
     ).transpose(0, 1)
 
