@@ -110,7 +110,7 @@ class HiddenStateBasedScorers(Scorer):
         layers = self.layers
 
         # Update accumulation device if needed
-        self.accumulation_device = output["encoder_hidden_states"][-1].device
+        self.accumulation_device = output[self.chosen_state][-1].device
 
         if self.chosen_state=="decoder_hidden_states":
             data = torch.stack([torch.stack(list(x)) for x in output["decoder_hidden_states"]]).squeeze(3).permute(1,2,0,3)

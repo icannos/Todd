@@ -9,7 +9,7 @@ class BartQueryScorer(QueryBasedScorer):
                  tokenizer: BartTokenizer = None,
                  batch_size: int = 32,
                  prefix: str = None,
-                 loss_on_first_word_only: bool = True,
+                 loss_on_first_word_only: bool = False,
                  repetitions: int = 10):
         super().__init__(model, tokenizer, batch_size, prefix)
         self.loss_fct = torch.nn.CrossEntropyLoss(reduction="none", ignore_index=-100)
