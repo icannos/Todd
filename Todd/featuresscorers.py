@@ -106,6 +106,9 @@ class MahalanobisScorer(HiddenStateBasedScorers):
             delta = emb - self.means[(layer, cl)]
             cov = self.covs[(layer, cl)]
 
+            delta = delta.float().cpu()
+            cov = cov.float().cpu()     # For size purposes
+
             prod = torch.linalg.solve(cov[None, :, :], delta[:, :, None]).squeeze(-1)
             m = torch.bmm(delta[:, None, :], prod[:, :, None]).squeeze(-1).squeeze(-1)
 
