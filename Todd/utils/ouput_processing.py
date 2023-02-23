@@ -102,7 +102,7 @@ def extract_decoder_hidden_states(
     # [bsz * beam_width ; seqlen ; featdim]
     decoder_hidden_states = torch.stack(
         [
-            decoder_hidden_states[i][hidden_layer_idx][:, 0, :].index_select(
+            hidden_states[i][hidden_layer_idx][:, 0, :].index_select(
                 dim=0, index=beam_indices[:, i]  # reordering using the beam_indices
             )
             for i in range(seqlen)
