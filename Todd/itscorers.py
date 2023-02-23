@@ -7,7 +7,7 @@ from .basescorers import (
     mask_pad_tokens,
 )
 
-from .utils.ouput_processing import (
+from .utils.output_processing import (
     extract_log_probability_distributions,
     GenerateOutputType,
 )

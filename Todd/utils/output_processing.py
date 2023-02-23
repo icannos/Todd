@@ -74,11 +74,11 @@ def extract_decoder_hidden_states(
     if isinstance(output, BeamSearchDecoderOnlyOutput) or isinstance(
         output, BeamSampleDecoderOnlyOutput
     ):
-        hidden_states = output.hidden_states
+        decoder_hidden_states = output.hidden_states
     elif isinstance(output, BeamSearchEncoderDecoderOutput) or isinstance(
         output, BeamSampleEncoderDecoderOutput
     ):
-        hidden_states = output.decoder_hidden_states
+        decoder_hidden_states = output.decoder_hidden_states
     else:
         raise ValueError("Unknown output type")
 
@@ -113,3 +113,12 @@ def extract_decoder_hidden_states(
     decoder_hidden_states[beam_indices_mask] = 0
 
     return decoder_hidden_states
+
+
+def return_hidden_state(output, chosen_state, hidden_layer_idx=-1):
+    if chosen_state == "encoder_hidden_states":
+        return output["encoder_hidden_states"][hidden_layer_idx]
+    return extract_decoder_hidden_states(
+        output,
+        hidden_layer_idx=hidden_layer_idx
+    )
