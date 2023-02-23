@@ -20,6 +20,7 @@ GenerateOutputType = Union[
 
 def extract_log_probability_distributions(
     output: GenerateOutputType,
+    normalize: bool = False,
 ) -> torch.Tensor:
     """
     output: GenerateOutputType = Union[
@@ -43,6 +44,10 @@ def extract_log_probability_distributions(
         beam_indices = beam_indices.expand(-1, len(scores))
 
     scores = torch.stack(scores).transpose(0, 1)
+
+    # renormalize probabilities
+    if normalize:
+        scores = torch.nn.functional.log_softmax(scores, dim=-1)
 
     # 4. cut beam_indices to longest beam length
     beam_indices_mask = beam_indices < 0
@@ -118,7 +123,4 @@ def extract_decoder_hidden_states(
 def extract_hidden_state(output, chosen_state, hidden_layer_idx=-1):
     if chosen_state == "encoder_hidden_states":
         return output["encoder_hidden_states"][hidden_layer_idx]
-    return extract_decoder_hidden_states(
-        output,
-        hidden_layer_idx=hidden_layer_idx
-    )
+    return extract_decoder_hidden_states(output, hidden_layer_idx=hidden_layer_idx)
