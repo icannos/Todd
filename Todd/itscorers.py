@@ -127,6 +127,7 @@ class SequenceRenyiNegScorer(SequenceSoftMaxScorerBase):
             scores = self.per_output_scores(output)
         elif self.mode == "token":
             scores = self.per_token_scores(output)
+            scores = scores.view(self.batch_size * self.num_return_sequences, -1)
             # build mask
             mask = mask_pad_tokens(output.sequences, scores, self.pad_token_id)
             # Transform scores into list of variable length
@@ -139,9 +140,9 @@ class SequenceRenyiNegScorer(SequenceSoftMaxScorerBase):
             for i in range(self.batch_size):
                 _scores.append(
                     [
-                        scores[i, j, : seq_lengths[i * self.num_return_sequences + j]]
-                        .cpu()
-                        .tolist()
+                        scores[
+                            i, j, : seq_lengths[i * self.num_return_sequences + j]
+                        ].tolist()
                         for j in range(self.num_return_sequences)
                     ]
                 )
@@ -247,6 +248,8 @@ class BeamRenyiInformationProjection(SequenceSoftMaxScorerBase):
         scores = extract_log_probability_distributions(
             output,
         )
+        scores = scores.view(self.batch_size * self.num_return_sequences, -1)
+
         probabilities = self.mk_probability(scores)
 
         mask = mask_pad_tokens(output.sequences, probabilities, self.pad_token_id)
@@ -334,5 +337,6 @@ class BeamRenyiInformationProjection(SequenceSoftMaxScorerBase):
             f"BeamRenyiInformationProjection(alpha={self.alpha}, "
             f"use_soft_projection={self.use_soft_projection},"
             f"n_neighbors={self.n_neighbors},"
-            f"temperature={self.temperature}, mode={self.mode})"
+            f"temperature={self.temperature}, "
+            f"mode={self.mode})"
         )
