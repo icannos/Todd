@@ -51,18 +51,21 @@ def extract_log_probability_distributions(
 
     # 4. cut beam_indices to longest beam length
     beam_indices_mask = beam_indices < 0
-    max_beam_length = (1 - beam_indices_mask.long()).sum(-1).max()
+    # max_beam_length = (1 - beam_indices_mask.long()).sum(-1).max()
+
+    beam_indices[beam_indices_mask] = 0
+
+    # Some weird hackiness:
+    max_beam_length = scores.shape[1]
     beam_indices = beam_indices[:, :max_beam_length]
-    beam_indices_mask = beam_indices_mask[:, :max_beam_length]
 
     # 5. Set indices of beams that finished early to 0
     # such indices will be masked correctly afterwards
-    beam_indices[beam_indices_mask] = 0
 
     # 8. Compute scores
-    transition_scores = torch.gather(
-        scores, dim=0, index=beam_indices[..., None].expand(-1, -1, scores.shape[-1])
-    )
+    beam_indices = beam_indices[..., None].expand(-1, -1, scores.shape[-1])
+
+    transition_scores = torch.gather(scores, dim=0, index=beam_indices)
 
     return transition_scores
 

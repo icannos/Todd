@@ -130,16 +130,18 @@ class SequenceRenyiNegScorer(SequenceSoftMaxScorerBase):
             # build mask
             mask = mask_pad_tokens(output.sequences, scores, self.pad_token_id)
             # Transform scores into list of variable length
+
             seq_lengths = mask.sum(-1)
 
             scores = scores.view(self.batch_size, self.num_return_sequences, -1)
             _scores = []
+
             for i in range(self.batch_size):
                 _scores.append(
                     [
-                        scores[
-                            i, j, : seq_lengths[i * self.num_return_sequences + j]
-                        ].tolist()
+                        scores[i, j, : seq_lengths[i * self.num_return_sequences + j]]
+                        .cpu()
+                        .tolist()
                         for j in range(self.num_return_sequences)
                     ]
                 )
@@ -200,9 +202,11 @@ class SequenceRenyiNegDataFittedScorer(SequenceRenyiNegScorer):
         Y = probabilities.view(-1, probabilities.shape[2])
 
         # Maybe best to ignore pad and special tokens
-        per_step_scores = torch.nan_to_num(self._renyi_div(Y), posinf=10000, neginf=-10000).view(
-            batch_size, self.num_return_sequences, -1
-        ).cpu()
+        per_step_scores = (
+            torch.nan_to_num(self._renyi_div(Y), posinf=10000, neginf=-10000)
+            .view(batch_size, self.num_return_sequences, -1)
+            .cpu()
+        )
 
         return per_step_scores
 

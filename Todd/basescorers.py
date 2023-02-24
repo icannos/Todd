@@ -21,7 +21,7 @@ def mask_pad_tokens(
     # Sometime scores and sequences gen size are different for decoders
     # (sequences include the original prompt, scores don't)
     if sequences.shape[1] != scores.shape[1]:
-        mask = sequences[:, -scores.shape[1]:] != pad_token_id
+        mask = sequences[:, -scores.shape[1] :] != pad_token_id
     else:
         mask = sequences != pad_token_id
 
@@ -103,7 +103,7 @@ class HiddenStateBasedScorers(Scorer):
         self,
         output,
         y: Optional[torch.Tensor] = None,
-        ) -> None:
+    ) -> None:
 
         """
         Append new layer embeddings from the output to the provided dictionnary
@@ -122,9 +122,7 @@ class HiddenStateBasedScorers(Scorer):
 
         for layer in layers:
             hidden_state = extract_hidden_state(
-                output,
-                self.chosen_state,
-                hidden_layer_idx=layer
+                output, self.chosen_state, hidden_layer_idx=layer
             )
 
             # We use the first token embedding as representation of the sequence for now
@@ -140,7 +138,9 @@ class HiddenStateBasedScorers(Scorer):
                 self.accumulated_embeddings[(layer, 0)].extend(emb.detach().cpu())
             else:
                 for i in range(emb.shape[0]):
-                    self.accumulated_embeddings[(layer, int(y[i]))].append(emb[i].detach().cpu())
+                    self.accumulated_embeddings[(layer, int(y[i]))].append(
+                        emb[i].detach().cpu()
+                    )
 
 
 class OutputBasedScorers(Scorer):
