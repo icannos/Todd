@@ -248,7 +248,6 @@ class BeamRenyiInformationProjection(SequenceSoftMaxScorerBase):
         scores = extract_log_probability_distributions(
             output,
         )
-        scores = scores.view(self.batch_size * self.num_return_sequences, -1)
 
         probabilities = self.mk_probability(scores)
 
