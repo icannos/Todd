@@ -128,7 +128,7 @@ class SequenceRenyiNegScorer(SequenceSoftMaxScorerBase):
         elif self.mode == "token":
             scores = self.per_token_scores(output)
             # build mask
-            mask = mask_pad_tokens(output.sequences, scores, self.pad_token_id)
+            mask = mask_pad_tokens(output.sequences, scores.view(self.batch_size*self.num_return_sequences, -1), self.pad_token_id)
             # Transform scores into list of variable length
             seq_lengths = mask.sum(-1)
 
