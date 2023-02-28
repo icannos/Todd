@@ -20,6 +20,8 @@ class BartQueryScorer(QueryBasedScorer):
     def score_sentence(self, sentence: str, model=None, tokenizer=None):
         if self.prefix is not None:
             sentence = sentence.replace(self.prefix, "")
+        if self.suffix is not None:
+            sentence = sentence.replace(self.suffix, "")
 
         assert isinstance(model, BartForConditionalGeneration)
 

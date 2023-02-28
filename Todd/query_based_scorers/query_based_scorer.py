@@ -2,12 +2,13 @@ from typing import List
 
 
 class QueryBasedScorer:
-    def __init__(self, model=None, tokenizer=None, batch_size: int = 32, prefix: str = None):
+    def __init__(self, model=None, tokenizer=None, batch_size: int = 32, prefix: str = None, suffix: str = None):
         self.model = model
         self.tokenizer = tokenizer
         self.batch_size = batch_size
         self.score = None
         self.prefix = prefix
+        self.suffix = suffix
 
     def score_sentence(self, sentence: str, model=None, tokenizer=None):
         raise NotImplementedError

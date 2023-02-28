@@ -18,6 +18,8 @@ class T5QueryScorer(QueryBasedScorer):
     def score_sentence(self, sentence: str, model=None, tokenizer=None):
         if self.prefix is not None:
             sentence = sentence.replace(self.prefix, "")
+        if self.suffix is not None:
+            sentence = sentence.replace(self.suffix, "")
 
         model = model if model is not None else self.model
         tokenizer = tokenizer if tokenizer is not None else self.tokenizer
