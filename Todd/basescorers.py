@@ -236,7 +236,7 @@ class SequenceSoftMaxScorerBase(OutputBasedScorers):
 
         # (batch_size, num_seq_return, nun_gen_steps)
         per_step_scores = per_step_scores.squeeze(-1)
-        per_step_scores = per_step_scores.view(batch_size * num_return_sequences, -1)
+        per_step_scores = per_step_scores.reshape(batch_size * num_return_sequences, -1)
 
         # (batch_size*numbeam*numreturn, 1)
         anomaly_scores = mean_score_remove_padding(
@@ -244,7 +244,7 @@ class SequenceSoftMaxScorerBase(OutputBasedScorers):
         )
 
         # (batch_size, numreturn)
-        anomaly_scores = anomaly_scores.view(batch_size, num_return_sequences)
+        anomaly_scores = anomaly_scores.reshape(batch_size, num_return_sequences)
 
         return anomaly_scores
 
