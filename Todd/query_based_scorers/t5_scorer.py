@@ -9,8 +9,9 @@ class T5QueryScorer(QueryBasedScorer):
                  tokenizer: T5Tokenizer = None,
                  batch_size: int = 32,
                  prefix: str = None,
+                 suffix: str = None,
                  loss_on_first_word_only: bool = True):
-        super().__init__(model, tokenizer, batch_size, prefix)
+        super().__init__(model, tokenizer, batch_size, prefix, suffix)
         self.loss_fct = torch.nn.CrossEntropyLoss(reduction="none", ignore_index=-100)
         self.score_names = ["score"]
         self.loss_on_first_word_only = loss_on_first_word_only
