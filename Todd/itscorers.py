@@ -250,13 +250,16 @@ class BeamRenyiInformationProjection(SequenceSoftMaxScorerBase):
         )
 
         probabilities = self.mk_probability(scores)
+        vocab_size = probabilities.shape[-1]
 
         mask = mask_pad_tokens(output.sequences, probabilities, self.pad_token_id)
 
         prob_types = (probabilities * mask[:, :, None]).sum(1) / mask.sum(-1)[:, None]
 
         # [batch_size, numreturn, vocab_size]
-        prob_types = prob_types.view(self.batch_size, self.num_return_sequences, -1)
+        prob_types = prob_types.view(
+            self.batch_size, self.num_return_sequences, vocab_size
+        )
 
         # [batch_size, numreturn]
         scores = self.projection_function(prob_types).cpu()
