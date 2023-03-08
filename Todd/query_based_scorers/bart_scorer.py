@@ -10,12 +10,11 @@ class BartQueryScorer(QueryBasedScorer):
                  batch_size: int = 32,
                  prefix: str = None,
                  suffix: str = None,
-                 loss_on_first_word_only: bool = False,
                  repetitions: int = 10):
+
         super().__init__(model, tokenizer, batch_size, prefix, suffix)
         self.loss_fct = torch.nn.CrossEntropyLoss(reduction="none", ignore_index=-100)
         self.score_names = ["score"]
-        self.loss_on_first_word_only = loss_on_first_word_only
         self.repetitions = repetitions
 
     def score_sentence(self, sentence: str, model=None, tokenizer=None):
@@ -27,23 +26,18 @@ class BartQueryScorer(QueryBasedScorer):
         assert isinstance(model, BartForConditionalGeneration)
 
         sentences, labels = self.return_masked_input(sentence, tokenizer)
-        loss = 0
 
+        logits = []
+        masked_index = (sentences == tokenizer.mask_token_id)
         for i in range(0, len(sentences), self.batch_size):
             with torch.no_grad():
                 batch_sentences = sentences[i:i + self.batch_size].to(model.device)
                 batch_labels = labels[i:i + self.batch_size].to(model.device)
-                lm_logits = model(input_ids=batch_sentences, labels=batch_labels).logits
+                logits.append(model(input_ids=batch_sentences, labels=batch_labels).logits)
 
-                # Here we only extract the loss for the first word of the masked prediction
-                if self.loss_on_first_word_only:
-                    masked_index = (batch_sentences == tokenizer.mask_token_id).nonzero()
-                    loss = max(loss,
-                               self.loss_fct(lm_logits.view(-1, lm_logits.size(-1)), batch_labels.view(-1)).view(len(batch_labels),-1)[
-                                   masked_index[:, 0], masked_index[:, 1]].max().item())
-                else:
-                    loss = max(loss, self.loss_fct(lm_logits.view(-1, lm_logits.size(-1)), batch_labels.view(-1)).view(len(batch_labels), -1).max().item())
-        return loss
+        logits = torch.cat(logits, dim=0)
+        scores = self.score_tokens(logits, labels, mask=masked_index)
+        return scores
 
     def return_masked_input(self, sentence: str, tokenizer, mlm_probability: float = 0.15):
         input_ids = tokenizer([sentence], return_tensors="pt", padding=True, truncation=True).input_ids
@@ -60,4 +54,4 @@ class BartQueryScorer(QueryBasedScorer):
         return input_ids, labels
 
     def __format__(self, format_spec):
-        return f"BartQueryScorer(loss_on_first_word_only={self.loss_on_first_word_only})"
+        return f"BartQueryScorer()"
