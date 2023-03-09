@@ -1,6 +1,8 @@
+import torch
 from typing import List
 from Todd.query_based_scorers.scoring_functions import ScoringFunction, MaxSoftmaxProbability, CrossEntropyLoss, SoftmaxEntropy, RenyiDivergence, RenyiDivergenceWithReference
 from Todd.query_based_scorers.scoring_aggregators import ScoringAggregator, MeanAggregator, MaxAggregator, MaskedMaxAggregator, MaskedMeanAggregator, MaskedSumAggregator, SumAggregator
+
 
 class QueryBasedScorer:
     def __init__(self,
@@ -11,10 +13,12 @@ class QueryBasedScorer:
                  suffix: str = None,
                  scoring_functions: List[ScoringFunction] = None,
                  scoring_aggregator: List[ScoringAggregator] = None,
+                 device: str = None,
                  *args,
                  **kwargs):
 
-        self.model = model
+        self.device = device if device is not None else "cuda" if torch.cuda.is_available() else "cpu"
+        self.model = model.to(self.device) if model is not None else None
         self.tokenizer = tokenizer
         self.batch_size = batch_size
         self.prefix = prefix

@@ -57,7 +57,7 @@ class SequenceRenyiNegScorer(SequenceSoftMaxScorerBase):
         # If alpha is 1, we compute the KL divergence
         if self.alpha == 1:
             per_step_scores = torch.log(probabilities) * probabilities
-            per_step_scores = per_step_scores.sum(-1)
+            per_step_scores = per_step_scores.nan_to_num(0).sum(-1)
             per_step_scores += torch.log(
                 torch.ones_like(per_step_scores).to(probabilities.device)
                 * probabilities.shape[-1]
@@ -65,7 +65,7 @@ class SequenceRenyiNegScorer(SequenceSoftMaxScorerBase):
         else:
             # (num_gen_tokens, batch_size*numbeam*numreturn, 1)
             # Renyi divergence against the uniform distribution
-            per_step_scores = torch.log(torch.pow(probabilities, self.alpha).sum(-1))
+            per_step_scores = torch.log(torch.pow(probabilities, self.alpha).sum(-1)).nan_to_num(0)
 
             per_step_scores -= (self.alpha - 1) * torch.log(
                 torch.ones_like(per_step_scores) * probabilities.shape[-1]

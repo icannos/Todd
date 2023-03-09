@@ -26,7 +26,7 @@ class BartQueryScorer(QueryBasedScorer):
         assert isinstance(model, BartForConditionalGeneration)
 
         sentences, labels = self.return_masked_input(sentence, tokenizer)
-
+        labels = labels.to(model.device)
         logits = []
         masked_index = (sentences == tokenizer.mask_token_id)
         for i in range(0, len(sentences), self.batch_size):
