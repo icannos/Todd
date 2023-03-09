@@ -82,4 +82,4 @@ class T5QueryScorer(QueryBasedScorer):
         return inputs_total, labels_total
 
     def __format__(self, format_spec):
-        return f"T5QueryScorer(loss_on_first_word_only=True)"
+        return f"T5QueryScorer()"
