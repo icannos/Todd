@@ -3,7 +3,7 @@ from transformers import T5Tokenizer, T5ForConditionalGeneration
 from Todd.query_based_scorers.query_based_scorer import QueryBasedScorer
 
 
-class T5QueryScorer(QueryBasedScorer):
+class T5QueryScorerDeprecated(QueryBasedScorer):
     def __init__(self,
                  model: T5ForConditionalGeneration = None,
                  tokenizer: T5Tokenizer = None,
