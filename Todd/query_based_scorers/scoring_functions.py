@@ -57,8 +57,10 @@ class RenyiDivergenceWithReference(ScoringFunction):
         self.reference = reference
 
     def forward(self, logits, labels):
+        reference = self.reference
         if self.reference is None:
-            return torch.ones_like(labels)*0.0
+            reference = torch.ones_like(logits)/logits.size(-1)
+
         probs = torch.nn.functional.softmax(logits, dim=-1)
         # TODO: check if this is correct
-        return torch.sum(probs ** self.alpha, dim=-1) / (1 - self.alpha) - torch.sum(self.reference ** self.alpha, dim=-1) / (1 - self.alpha)
+        return torch.sum(probs ** self.alpha, dim=-1) / (1 - self.alpha) - torch.sum(reference ** self.alpha, dim=-1) / (1 - self.alpha)

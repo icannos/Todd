@@ -18,7 +18,7 @@ class T5QueryScorer(QueryBasedScorer):
         self.score_names = ["score"]
         self.repetitions = repetitions
 
-    def score_sentence(self, sentence: str, model=None, tokenizer=None):
+    def prepare_sentence(self, sentence: str, model=None, tokenizer=None):
         if self.prefix is not None:
             sentence = sentence.replace(self.prefix, "")
         if self.suffix is not None:
@@ -40,8 +40,7 @@ class T5QueryScorer(QueryBasedScorer):
                 logits.append(model(input_ids=batch_sentences, labels=batch_labels).logits)
 
         logits = torch.cat(logits, dim=0)
-        scores = self.score_tokens(logits, labels.to(model.device), mask=masked_index)
-        return scores
+        return logits, labels, masked_index
 
     def return_masked_input(self, sentence: str, tokenizer):
         """Return the T5 input_ids and attention_mask for all combinations of 1-word sample masking"""

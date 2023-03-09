@@ -23,6 +23,8 @@ class QueryBasedScorer:
         self.batch_size = batch_size
         self.prefix = prefix
         self.suffix = suffix
+        self.reference_probs = []
+
         if scoring_functions:
             self.scoring_functions = scoring_functions
         else:
@@ -38,8 +40,9 @@ class QueryBasedScorer:
                                        MaxAggregator(),
                                        MaskedMaxAggregator(),
                                        MaskedMeanAggregator(),
-                                       MaskedSumAggregator(),
-                                       SumAggregator()]
+                                       # MaskedSumAggregator(),
+                                       # SumAggregator()
+                                       ]
 
     def score_tokens(self, logits, labels, mask=None):
         scores = []
@@ -50,17 +53,32 @@ class QueryBasedScorer:
                 scores.append({f"{scoring_function.name}_{aggregator.name}": agg_score})
         return scores
 
-    def score_sentence(self, sentence: str, model=None, tokenizer=None):
-        raise NotImplementedError
-
     def score_sentences(self, sentences: List[str], model=None, tokenizer=None):
         model = model if self.model is None else self.model
         tokenizer = tokenizer if self.tokenizer is None else self.tokenizer
-
         return [self.score_sentence(sentence, model, tokenizer) for sentence in sentences]
 
-    def accumulate(self, output):
-        pass
+    def score_sentence(self, sentence: str, model=None, tokenizer=None):
+        logits, labels, masked_index = self.prepare_sentence(sentence, model, tokenizer)
+        scores = self.score_tokens(logits, labels.to(model.device), mask=masked_index)
+        return scores
+
+    def prepare_sentence(self, sentence: str, model=None, tokenizer=None):
+        raise NotImplementedError
+
+    def accumulate(self, sentences: List[str], model=None, tokenizer=None):
+        model = model if self.model is None else self.model
+        tokenizer = tokenizer if self.tokenizer is None else self.tokenizer
+
+        for sentence in sentences:
+            logits, labels, masked_index = self.prepare_sentence(sentence, model, tokenizer)
+            self.reference_probs.append(logits[masked_index].softmax(dim=1).mean(dim=0).cpu())
 
     def fit(self):
-        pass
+        self.reference_probs = torch.stack(self.reference_probs).mean(dim=0)
+        for scoring_func in self.scoring_functions:
+            if isinstance(scoring_func, RenyiDivergenceWithReference):
+                scoring_func.reference = self.reference_probs
+
+    def return_masked_input(self, sentence: str, tokenizer):
+        raise NotImplementedError
