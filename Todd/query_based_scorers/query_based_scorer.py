@@ -49,7 +49,10 @@ class QueryBasedScorer:
         for scoring_function in self.scoring_functions:
             token_scores = scoring_function(logits, labels)
             for aggregator in self.scoring_aggregator:
-                agg_score = aggregator(token_scores, mask).item()
+                if mask.sum() == 0:
+                    agg_score = 0
+                else:
+                    agg_score = aggregator(token_scores, mask).item()
                 scores.append({f"{scoring_function.name}_{aggregator.name}": agg_score})
         return scores
 
