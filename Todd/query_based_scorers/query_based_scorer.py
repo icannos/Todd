@@ -32,7 +32,13 @@ class QueryBasedScorer:
                                       SoftmaxEntropy(),
                                       MaxSoftmaxProbability(),
                                       RenyiDivergence(),
-                                      RenyiDivergenceWithReference()]
+                                      RenyiDivergenceWithReference(alpha=0.5),
+                                      RenyiDivergenceWithReference(alpha=0.9),
+                                      RenyiDivergenceWithReference(alpha=2.0),
+                                      RenyiDivergenceWithReference(alpha=3.0),
+                                      RenyiDivergenceWithReference(alpha=5.0),
+                                      RenyiDivergenceWithReference(alpha=10.0),
+                                      RenyiDivergenceWithReference(alpha=20.0)]
         if scoring_aggregator:
             self.scoring_aggregator = scoring_aggregator
         else:
