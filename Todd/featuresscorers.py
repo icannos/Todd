@@ -7,6 +7,7 @@ from transformers.modeling_outputs import ModelOutput
 
 from .utils.output_processing import extract_hidden_state
 from .basescorers import HiddenStateBasedScorers
+from .thirdparts.datadepths import DataDepth
 
 
 class MahalanobisScorer(HiddenStateBasedScorers):
@@ -57,12 +58,18 @@ class MahalanobisScorer(HiddenStateBasedScorers):
 
         # Compute the means and covariance matrices of the embeddings
         self.means = {
-            (layer, cl): torch.stack(per_layer_embeddings[(layer, cl)]).float().mean(dim=0).to(self.accumulation_device)
+            (layer, cl): torch.stack(per_layer_embeddings[(layer, cl)])
+            .float()
+            .mean(dim=0)
+            .to(self.accumulation_device)
             for layer, cl in per_layer_embeddings.keys()
             if -1 in self.layers or layer in self.layers
         }
         self.covs = {
-            (layer, cl): torch.stack(per_layer_embeddings[(layer, cl)], dim=1).float().cov().to(self.accumulation_device)
+            (layer, cl): torch.stack(per_layer_embeddings[(layer, cl)], dim=1)
+            .float()
+            .cov()
+            .to(self.accumulation_device)
             for layer, cl in per_layer_embeddings.keys()
             if -1 in self.layers or layer in self.layers
         }
@@ -90,7 +97,11 @@ class MahalanobisScorer(HiddenStateBasedScorers):
         scores: Dict[Tuple[int, int], torch.Tensor] = {}
 
         # TODO: Will not work for decoder only models
-        batch_size = output.encoder_hidden_states[0].shape[0] if "encoder_hidden_states" in output.keys() else None
+        batch_size = (
+            output.encoder_hidden_states[0].shape[0]
+            if "encoder_hidden_states" in output.keys()
+            else None
+        )
 
         for layer, cl in self.means.keys():
             hidden_state = extract_hidden_state(output, self.chosen_state, layer)
@@ -107,7 +118,7 @@ class MahalanobisScorer(HiddenStateBasedScorers):
             cov = self.covs[(layer, cl)]
 
             delta = delta.float().cpu()
-            cov = cov.float().cpu()     # For size purposes
+            cov = cov.float().cpu()  # For size purposes
 
             prod = torch.linalg.solve(cov[None, :, :], delta[:, :, None]).squeeze(-1)
             m = torch.bmm(delta[:, None, :], prod[:, :, None]).squeeze(-1).squeeze(-1)
@@ -195,7 +206,9 @@ class CosineProjectionScorer(HiddenStateBasedScorers):
 
         # free some space since we now have stored everything in the tensor
         del self.accumulated_embeddings
-        self.score_names = [f"{layer}_{cl}" for layer,cl in self.reference_embeddings.keys()]
+        self.score_names = [
+            f"{layer}_{cl}" for layer, cl in self.reference_embeddings.keys()
+        ]
 
     def compute_per_layer_per_class_disimilarity(
         self, output: ModelOutput
@@ -209,13 +222,15 @@ class CosineProjectionScorer(HiddenStateBasedScorers):
 
         for layer, cl in self.reference_embeddings.keys():
             hidden_state = extract_hidden_state(
-                output,
-                self.chosen_state,
-                hidden_layer_idx=layer
+                output, self.chosen_state, hidden_layer_idx=layer
             )
             dim = hidden_state.shape[-1]
             input_size = hidden_state.shape
-            batch_size = output.encoder_hidden_states[layer].shape[0] if "encoder_hidden_states" in output.keys() else None
+            batch_size = (
+                output.encoder_hidden_states[layer].shape[0]
+                if "encoder_hidden_states" in output.keys()
+                else None
+            )
 
             if self.use_first_token_only:
                 emb = hidden_state[:, 0, ...]
@@ -223,7 +238,11 @@ class CosineProjectionScorer(HiddenStateBasedScorers):
                 emb = hidden_state.mean(dim=1)
 
             emb = emb[:, None, :].view(-1, 1, dim)
-            ref = self.reference_embeddings[(layer, cl)][None, :, :].to(self.accumulation_device).view(1, -1, dim)
+            ref = (
+                self.reference_embeddings[(layer, cl)][None, :, :]
+                .to(self.accumulation_device)
+                .view(1, -1, dim)
+            )
 
             # Compute the cosine similarity between the embedding and the mean
             cosine_scores = torch.nn.functional.cosine_similarity(emb, ref, dim=-1)
@@ -234,7 +253,9 @@ class CosineProjectionScorer(HiddenStateBasedScorers):
 
             # Max over beams
             if batch_size:
-                scores[(layer, cl)] = tmp_scores.view(batch_size, -1).max(dim=1)[0].cpu()
+                scores[(layer, cl)] = (
+                    tmp_scores.view(batch_size, -1).max(dim=1)[0].cpu()
+                )
             else:
                 scores[(layer, cl)] = tmp_scores.cpu()
 
@@ -272,3 +293,143 @@ class CosineProjectionScorer(HiddenStateBasedScorers):
 
     def __format__(self, format_spec):
         return f"CosineProjectionScorer(layers={self.layers},use_first_token_only={self.use_first_token_only},chosen_state={self.chosen_state})"
+
+
+class DataDepthScorer(HiddenStateBasedScorers):
+    """
+    Filters a batch of outputs based on the Mahalanobis distance of the first sequence returned for each input.
+    """
+
+    def __init__(
+        self,
+        layers: List[int] = (-1,),
+        depth_choice="int_w_halfs_pace",
+        K=100,
+        **kwargs,
+    ):
+        super().__init__(kwargs)
+        self.depth_choice = depth_choice
+        self.K = K
+        self.data_depth = DataDepth(K=K)
+
+        self.layers = set(layers)
+        self.score_names = []
+
+    def accumulate(self, output: ModelOutput, y: Optional[List[int]] = None) -> None:
+        """
+        Accumulate the embeddings of the input sequences in the scorer. To be used before fitting
+        the scorer with self.fit.
+        It is an encapsulation of extract_batch_embeddings / extract embeddings directly in the detector.
+        @param output: Model output
+        @param y: classes of the input sequences (used to build per class references)
+        """
+
+        self.extract_batch_embeddings(
+            output=output,
+            y=y,
+        )
+
+    def fit(
+        self,
+        per_layer_embeddings: Optional[
+            Dict[Tuple[int, int], List[torch.Tensor]]
+        ] = None,
+        **kwargs,
+    ):
+        """
+        Prepare the scorer by computing necessary statistics on the reference dataset.
+        :param per_layer_embeddings:
+        """
+
+        if per_layer_embeddings is not None:
+            self.accumulated_embeddings = per_layer_embeddings
+
+        self.score_names = [
+            f"layer_{layer}_class_{cl}" for layer, cl in self.means.keys()
+        ]
+
+    def compute_per_layer_per_class_distances(
+        self, output: ModelOutput
+    ) -> Dict[Tuple[int, int], torch.Tensor]:
+        """
+
+        @param output: Huggingface model outputs with 'encoder_hidden_states'.
+        @return: Dictionary of distances per layer and per class. Tensor of shape (batch_size, )
+        """
+        scores: Dict[Tuple[int, int], torch.Tensor] = {}
+
+        # TODO: Will not work for decoder only models
+        batch_size = (
+            output.encoder_hidden_states[0].shape[0]
+            if "encoder_hidden_states" in output.keys()
+            else None
+        )
+
+        for layer, cl in self.accumulated_embeddings.keys():
+            hidden_state = extract_hidden_state(output, self.chosen_state, layer)
+
+            # We take only the first token embedding as representation of the sequence for now
+            # It avoids the problem of the different length of the sequences when trying to take the average embedding
+            # emb : (batch_size, embedding_size)
+
+            if not self.use_first_token_only:
+                emb = hidden_state[:, 0, ...]
+            else:
+                emb = hidden_state.mean(dim=1)
+
+            m = self.data_depth.compute_depths(
+                X=self.accumulated_embeddings[(layer, cl)],
+                X_test=emb,
+                depth_choice=self.depth_choice,
+            )
+
+            # Take max per input # TODO: choice of aggregator
+            if batch_size:
+                scores[(layer, cl)] = m.view(batch_size, -1).max(dim=1)[0].cpu()
+            else:
+                scores[(layer, cl)] = m.cpu()
+
+        return scores
+
+    def compute_scores(self, output: ModelOutput):
+        """
+        Compute the Mahalanobis distance of the first sequence returned for each input.
+        :param output: output of the model
+        :return: (*,) tensor of Mahalanobis distances
+        """
+
+        scores = self.compute_per_layer_per_class_distances(output)
+
+        # We take the minimum distance over all layers and classes
+        # Todo: Change this behavior: choose one particular layer or better aggregation
+        scores = torch.stack([scores[(layer, cl)] for layer, cl in scores.keys()]).min(
+            dim=0
+        )[0]
+
+        return scores
+
+    def compute_scores_benchmark(
+        self, output: ModelOutput
+    ) -> Dict[Tuple[int, int], torch.Tensor]:
+        """
+        Compute the Mahalanobis distance of the first sequence returned for each input.
+        :param output: output of the model
+        :return: (*,) tensor of Mahalanobis distances
+        """
+
+        scores = self.compute_per_layer_per_class_distances(output)
+        scores = {
+            f"layer_{layer}_class_{cl}": scores[(layer, cl)]
+            for layer, cl in scores.keys()
+        }
+
+        return scores
+
+    def __format__(self, format_spec):
+        return (
+            f"DataDepthScorer(layers={self.layers},"
+            f"K={self.K},"
+            f"use_first_token_only={self.use_first_token_only},"
+            f"chosen_state={self.chosen_state}"
+            f"depth_choice={self.depth_choice})"
+        )
