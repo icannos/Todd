@@ -7,7 +7,7 @@ from transformers.modeling_outputs import ModelOutput
 
 from .utils.output_processing import extract_hidden_state
 from .basescorers import HiddenStateBasedScorers
-from .thirdparts.datadepths import DataDepth
+from .datadepths import DataDepth
 
 
 class MahalanobisScorer(HiddenStateBasedScorers):
