@@ -24,6 +24,7 @@ class QueryBasedScorer:
         self.prefix = prefix
         self.suffix = suffix
         self.reference_probs = []
+        self.concat_output = False
 
         if scoring_functions:
             self.scoring_functions = scoring_functions
