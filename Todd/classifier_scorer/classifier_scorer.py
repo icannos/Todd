@@ -21,6 +21,7 @@ class LogitClassifier(torch.nn.Module):
         self.classifier = torch.nn.Linear(config.hidden_size, num_labels).to(self.device)
 
     def forward(self, x):
+        x = self.projection(x)
         x = self.base_model(x).last_hidden_state
         x = x.mean(dim=1)
         x = self.classifier(x)
