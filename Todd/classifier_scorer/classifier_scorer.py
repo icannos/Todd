@@ -147,3 +147,6 @@ class ClassifierScorer(HiddenStateBasedScorers):
         # Clear the accumulated embeddings
         self.accumulated_embeddings = []
         self.labels = []
+
+    def __format__(self, format_spec):
+        return f"ClassifierScorer({self.chosen_state})"

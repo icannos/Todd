@@ -59,7 +59,7 @@ class QueryBasedScorer:
                 if mask.sum() == 0:
                     agg_score = 0
                 else:
-                    agg_score = aggregator(token_scores, mask).item()
+                    agg_score = aggregator(token_scores, mask).fillna(0).item()
                 scores.append({f"{scoring_function.name}_{aggregator.name}": agg_score})
         return scores
 
