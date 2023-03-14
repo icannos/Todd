@@ -14,7 +14,9 @@ class LogitClassifier(torch.nn.Module):
     def __init__(self, hidden_size, num_labels=2, device=None):
         super().__init__()
         self.device = device if device is not None else torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        config = BertConfig(hidden_size=hidden_size, num_hidden_layers=6)
+        config = BertConfig(num_hidden_layers=4)
+
+        self.projection = torch.nn.Linear(hidden_size, 768).to(self.device)
         self.base_model = BertModel(config=config).encoder.to(self.device)
         self.classifier = torch.nn.Linear(config.hidden_size, num_labels).to(self.device)
 
