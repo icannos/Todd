@@ -1,7 +1,21 @@
 import torch
-from typing import List
+from typing import List, Tuple
 from Todd.query_based_scorers.scoring_functions import ScoringFunction, MaxSoftmaxProbability, CrossEntropyLoss, SoftmaxEntropy, RenyiDivergence, RenyiDivergenceWithReference
 from Todd.query_based_scorers.scoring_aggregators import ScoringAggregator, MeanAggregator, MaxAggregator, MaskedMaxAggregator, MaskedMeanAggregator, MaskedSumAggregator, SumAggregator
+
+from torch.utils.data import DataLoader, Dataset
+
+
+class CustomDataset(Dataset):
+    def __init__(self, sentences):
+        self.sentences = sentences
+
+    def __len__(self):
+        return len(self.sentences)
+
+    def __getitem__(self, idx):
+        x = self.sentences[idx]
+        return x
 
 
 class QueryBasedScorer:
@@ -92,3 +106,101 @@ class QueryBasedScorer:
 
     def return_masked_input(self, sentence: str, tokenizer):
         raise NotImplementedError
+
+
+class TrainableQueryBasedScorer(QueryBasedScorer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.concat_output = True
+        self.training_data = []
+        self.learning_rate = kwargs.get("learning_rate", 1e-5)
+        self.num_train_epochs = kwargs.get("num_train_epochs", 10)
+        self.device= kwargs.get("device", "cuda" if torch.cuda.is_available() else "cpu")
+
+    def prepare_sentence(self, sentence: Tuple[str, str], model=None, tokenizer=None):
+        raise NotImplementedError
+
+    def accumulate(self, sentences: List[str], model=None, tokenizer=None) -> None:
+        super().accumulate(sentences, model, tokenizer)
+
+        for sentence in sentences:
+            if self.prefix is not None:
+                sentence = (sentence[0].replace(self.prefix, ""), sentence[1])
+            if self.suffix is not None:
+                sentence = (sentence[0].replace(self.suffix, ""), sentence[1])
+            self.training_data.append(sentence)
+
+
+    def fit(self):
+        super().fit()
+        dataset = CustomDataset(self.training_data)
+        loss_fn = torch.nn.CrossEntropyLoss(ignore_index=-100)
+        optimizer = torch.optim.Adam(self.model.parameters(), lr=self.learning_rate)
+
+        def collate_batch(batch):
+            sentence_list, label_list = [], []
+            for sent in batch:
+                # Process sentence, repetition is turned off for now
+                # TODO: Position IDs restart after each sequence
+                input_ids, labels = self.return_masked_input(sent, self.tokenizer, repetitions=1)
+                sentence_list.append(input_ids.squeeze())
+                label_list.append(labels.squeeze())
+
+            x = torch.nn.utils.rnn.pad_sequence(sentence_list, batch_first=True, padding_value=self.tokenizer.pad_token_id).to(self.model.device)
+            y = torch.nn.utils.rnn.pad_sequence(label_list, batch_first=True, padding_value=self.tokenizer.pad_token_id).to(self.model.device)
+            del sentence_list, label_list
+            y[~(x == self.tokenizer.mask_token_id)] = -100
+            return x, y
+
+
+        train_dataloader = DataLoader(
+            dataset=dataset,
+            batch_size=self.batch_size,
+            shuffle=True,
+            collate_fn=collate_batch
+        )
+        # Torch training loop
+        self.model.train()
+
+        def train_loop(dataloader, model, loss_fn, optimizer):
+            size = len(dataloader.dataset)
+            for batch, (X, y) in enumerate(dataloader):
+                # Compute prediction and loss
+                pred = model(X).logits
+                loss = loss_fn(pred.view(-1, pred.shape[-1]), y.view(-1))
+
+                # Backpropagation
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+
+                if batch % 100 == 0:
+                    loss, current = loss.item(), (batch + 1) * len(X)
+                    print(f"loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
+
+        def test_loop(dataloader, model, loss_fn):
+            size = len(dataloader.dataset)
+            num_batches = len(dataloader)
+            test_loss, correct = 0, 0
+
+            with torch.no_grad():
+                for X, y in dataloader:
+                    pred = model(X)
+                    test_loss += loss_fn(pred, y).item()
+                    correct += (pred.argmax(1) == y).type(torch.float).sum().item()
+
+            test_loss /= num_batches
+            correct /= size
+            print(f"Test Error: \n Accuracy: {(100 * correct):>0.1f}%, Avg loss: {test_loss:>8f} \n")
+
+        for t in range(self.num_train_epochs):
+            print(f"Epoch {t + 1}\n-------------------------------")
+            train_loop(train_dataloader, self.model, loss_fn, optimizer)
+            # test_loop(train_dataloader, self.model, loss_fn)
+        print("Done!")
+
+        # Clear the accumulated embeddings
+        self.accumulated_embeddings = []
+        self.labels = []
+
+        del self.training_data
