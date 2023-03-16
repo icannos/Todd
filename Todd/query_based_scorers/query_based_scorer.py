@@ -138,19 +138,24 @@ class TrainableQueryBasedScorer(QueryBasedScorer):
         optimizer = torch.optim.Adam(self.model.parameters(), lr=self.learning_rate)
 
         def collate_batch(batch):
-            sentence_list, label_list = [], []
+            sentence_list, label_list, token_type_list = [], [], []
             for sent in batch:
                 # Process sentence, repetition is turned off for now
                 # TODO: Position IDs restart after each sequence
-                input_ids, labels = self.return_masked_input(sent, self.tokenizer, repetitions=1)
+                input_ids, labels, token_type_ids = self.return_masked_input(sent, self.tokenizer, repetitions=1)
                 sentence_list.append(input_ids.squeeze())
                 label_list.append(labels.squeeze())
+                if token_type_ids is not None:
+                    token_type_list.append(token_type_ids.squeeze())
 
             x = torch.nn.utils.rnn.pad_sequence(sentence_list, batch_first=True, padding_value=self.tokenizer.pad_token_id).to(self.model.device)
+            t = None
+            if len(token_type_list) > 0:
+                t = torch.nn.utils.rnn.pad_sequence(token_type_list, batch_first=True, padding_value=1).to(self.model.device)
             y = torch.nn.utils.rnn.pad_sequence(label_list, batch_first=True, padding_value=self.tokenizer.pad_token_id).to(self.model.device)
             del sentence_list, label_list
             y[~(x == self.tokenizer.mask_token_id)] = -100
-            return x, y
+            return x, y, t
 
 
         train_dataloader = DataLoader(
@@ -164,9 +169,9 @@ class TrainableQueryBasedScorer(QueryBasedScorer):
 
         def train_loop(dataloader, model, loss_fn, optimizer):
             size = len(dataloader.dataset)
-            for batch, (X, y) in enumerate(dataloader):
+            for batch, (X, y, t) in enumerate(dataloader):
                 # Compute prediction and loss
-                pred = model(X).logits
+                pred = model(X, token_type_ids=t).logits
                 loss = loss_fn(pred.view(-1, pred.shape[-1]), y.view(-1))
 
                 # Backpropagation
