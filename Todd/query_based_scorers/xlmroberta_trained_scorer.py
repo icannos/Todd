@@ -22,7 +22,7 @@ class XLMRobertaTrainedQueryScorer(TrainableQueryBasedScorer):
         self.repetitions = repetitions
 
     def prepare_sentence(self, sentence: Tuple[str, str], model=None, tokenizer=None):
-        assert isinstance(model, Union[XLMRobertaForMaskedLM, XLMWithLMHeadModel])
+        assert (isinstance(model, XLMRobertaForMaskedLM) or isinstance(model, XLMWithLMHeadModel))
 
         if isinstance(sentence, tuple) and self.concat_output:
             if self.prefix is not None:
