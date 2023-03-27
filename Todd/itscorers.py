@@ -215,6 +215,117 @@ class SequenceRenyiNegDataFittedScorer(SequenceRenyiNegScorer):
         return f"SequenceRenyiNegDataFittedScorer(alpha={self.alpha}, temperature={self.temperature}, mode={self.mode})"
 
 
+class InformationProjection(SequenceSoftMaxScorerBase):
+    def __init__(
+        self,
+        alpha: float = 1.5,
+        temperature: float = 2.0,
+        pad_token_id: int = 0,
+        mode="input",
+        use_soft_projection=False,
+        n_neighbors=-1,
+        num_return_sequences: int = 1,
+        num_beams: int = 1,
+    ):
+        super().__init__(temperature, pad_token_id, mode=mode)
+        self.num_beams = num_beams
+        self.num_return_sequences = num_return_sequences
+        self.n_neighbors = n_neighbors
+        self.use_soft_projection = use_soft_projection
+
+        # batch_size, voc_size
+        self.stored_types = []
+
+        self.alpha = alpha
+        self.score_names = ["score"]
+
+    def accumulate(self, output: GenerateOutputType):
+        # (batch_size, num_return)
+        per_output_scores = self.per_output_scores(output)
+        self.scores.append(per_output_scores)
+
+        scores = extract_log_probability_distributions(
+            output,
+        )
+
+        probabilities = self.mk_probability(scores)
+        vocab_size = probabilities.shape[-1]
+
+        mask = mask_pad_tokens(output.sequences, probabilities, self.pad_token_id)
+
+        prob_types = (probabilities * mask[:, :, None]).sum(1) / mask.sum(-1)[:, None]
+
+        # [batch_size, numreturn, vocab_size]
+        prob_types = prob_types.view(
+            self.batch_size, self.num_return_sequences, vocab_size
+        )[:, 0, :]
+
+        self.stored_types.append(prob_types.detach().cpu())
+
+    def fit(self, *args, **kwargs):
+        self.stored_types_tensor = torch.cat(self.stored_types, 0)
+
+        for tensor in self.stored_types:
+            del tensor
+        self.stored_types = []
+
+    def per_output_scores(
+        self,
+        output: GenerateOutputType,
+    ) -> torch.Tensor:
+        # Retieve probability distribution over the vocabulary for all sequences
+
+        self.batch_size = output.sequences.shape[0] // self.num_return_sequences
+        # [len_gen, batch_size*numreturn, vocab_size]
+
+        scores = extract_log_probability_distributions(
+            output,
+        )
+
+        probabilities = self.mk_probability(scores)
+        vocab_size = probabilities.shape[-1]
+
+        mask = mask_pad_tokens(output.sequences, probabilities, self.pad_token_id)
+
+        prob_types = (probabilities * mask[:, :, None]).sum(1) / mask.sum(-1)[:, None]
+
+        # [batch_size, numreturn, vocab_size]
+        prob_types = prob_types.view(
+            self.batch_size * self.num_return_sequences, vocab_size
+        )
+
+        # [batch_size, numreturn]
+        scores = self.projection_function(prob_types).cpu()
+        scores = scores.view(self.batch_size, self.num_return_sequences)
+
+        return scores
+
+    def projection_function(self, prob_types: torch.Tensor) -> torch.Tensor:
+
+        pair_wise_information = (
+            torch.pow(prob_types[:, None, :], self.alpha)
+            / torch.pow(self.stored_types_tensor[None, :, :], 1 - self.alpha)
+        ).sum(-1)
+
+        if self.use_soft_projection:
+            if self.n_neighbors == -1:
+                n_neighbors = pair_wise_information.shape[1] - 1
+            else:
+                n_neighbors = self.n_neighbors
+
+            scores, _ = torch.topk(
+                pair_wise_information, k=n_neighbors, dim=-1, largest=False
+            )
+            scores = scores.mean(-1)
+
+        else:
+            # Return the index of the closest type
+            # [batch_size, numreturn, ]
+            scores, _ = torch.min(pair_wise_information, 2)
+
+        return scores
+
+
 class BeamRenyiInformationProjection(SequenceSoftMaxScorerBase):
     def __init__(
         self,
