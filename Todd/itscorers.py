@@ -221,7 +221,7 @@ class InformationProjection(SequenceSoftMaxScorerBase):
         alpha: float = 1.5,
         temperature: float = 2.0,
         pad_token_id: int = 0,
-        mode="input",
+        mode="output",
         use_soft_projection=False,
         n_neighbors=-1,
         num_return_sequences: int = 1,
@@ -324,6 +324,15 @@ class InformationProjection(SequenceSoftMaxScorerBase):
             scores, _ = torch.min(pair_wise_information, 2)
 
         return scores
+
+    def __format__(self, format_spec):
+        return (
+            f"InformationProjection(alpha={self.alpha}, "
+            f"use_soft_projection={self.use_soft_projection},"
+            f"n_neighbors={self.n_neighbors},"
+            f"temperature={self.temperature}, "
+            f"mode={self.mode})"
+        )
 
 
 class BeamRenyiInformationProjection(SequenceSoftMaxScorerBase):
