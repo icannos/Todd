@@ -65,7 +65,7 @@ class SequenceRenyiNegScorer(SequenceSoftMaxScorerBase):
         else:
             # (num_gen_tokens, batch_size*numbeam*numreturn, 1)
             # Renyi divergence against the uniform distribution
-            per_step_scores = torch.log(torch.pow(probabilities, self.alpha).sum(-1)).nan_to_num(0)
+            per_step_scores = torch.log(torch.pow(probabilities, self.alpha).sum(-1)).nan_to_num(0, posinf=10000, neginf=-10000)
 
             per_step_scores -= (self.alpha - 1) * torch.log(
                 torch.ones_like(per_step_scores) * probabilities.shape[-1]
@@ -81,7 +81,7 @@ class SequenceRenyiNegScorer(SequenceSoftMaxScorerBase):
             batch_size, self.num_return_sequences, -1
         )
 
-        return per_step_scores
+        return per_step_scores.nan_to_num(0, posinf=10000, neginf=-10000)
 
     def per_output_scores(
         self,
