@@ -69,7 +69,7 @@ class ClassifierScorer(HiddenStateBasedScorers):
             output,
             self.chosen_state,
             hidden_layer_idx=self.layers
-        )
+        ).float()
 
         scores = self.model(hidden_state).softmax(dim=1)[:, 1].tolist()
         scores = {
