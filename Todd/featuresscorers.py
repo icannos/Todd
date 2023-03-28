@@ -344,8 +344,13 @@ class DataDepthScorer(HiddenStateBasedScorers):
         if per_layer_embeddings is not None:
             self.accumulated_embeddings = per_layer_embeddings
 
+        # To numpy:
+        for key, ref_list in self.accumulated_embeddings.items():
+            self.accumulated_embeddings[key] = torch.stack(ref_list).cpu().numpy()
+
         self.score_names = [
-            f"layer_{layer}_class_{cl}" for layer, cl in self.means.keys()
+            f"layer_{layer}_class_{cl}"
+            for layer, cl in self.accumulated_embeddings.keys()
         ]
 
     def compute_per_layer_per_class_distances(
@@ -379,15 +384,11 @@ class DataDepthScorer(HiddenStateBasedScorers):
 
             m = self.data_depth.compute_depths(
                 X=self.accumulated_embeddings[(layer, cl)],
-                X_test=emb,
+                X_test=emb.cpu().numpy(),
                 depth_choice=self.depth_choice,
             )
 
-            # Take max per input # TODO: choice of aggregator
-            if batch_size:
-                scores[(layer, cl)] = m.view(batch_size, -1).max(dim=1)[0].cpu()
-            else:
-                scores[(layer, cl)] = m.cpu()
+            scores[(layer, cl)] = m
 
         return scores
 
