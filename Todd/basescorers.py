@@ -303,6 +303,14 @@ class SoftMaxEnergyScorer(SequenceSoftMaxScorerBase):
             sequences, per_step_scores, num_return_sequences
         )
 
+    def per_input_scores(
+        self,
+        output: ModelOutput,
+        num_return_sequences: int = 1,
+        num_beam: int = 1,
+    ) -> torch.Tensor:
+        return self.per_output_scores(output, num_return_sequences, num_beam)[:, 0]
+
     def __format__(self, format_spec):
         return f"{self.__class__.__name__}(mode={self.mode}, temperature={self.temperature}, mode={self.mode})"
 
@@ -355,6 +363,14 @@ class SequenceMSPScorer(SequenceSoftMaxScorerBase):
         return self.aggregate_step_by_step_scores(
             sequences, per_step_scores, num_return_sequences
         )
+
+    def per_input_scores(
+        self,
+        output: ModelOutput,
+        num_return_sequences: int = 1,
+        num_beam: int = 1,
+    ) -> torch.Tensor:
+        return self.per_output_scores(output, num_return_sequences, num_beam)[:, 0]
 
     def __format__(self, format_spec):
         return f"{self.__class__.__name__}(mode={self.mode}, temperature={self.temperature}, mode={self.mode})"
