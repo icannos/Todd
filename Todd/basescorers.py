@@ -9,6 +9,7 @@ from transformers.modeling_outputs import ModelOutput
 from .utils.output_processing import (
     extract_hidden_state,
     extract_log_probability_distributions,
+    GenerateOutputType,
 )
 
 
@@ -251,6 +252,22 @@ class SequenceSoftMaxScorerBase(OutputBasedScorers):
 
         return anomaly_scores
 
+    def compute_scores_benchmark(
+        self, output: GenerateOutputType
+    ) -> Dict[str, Union[torch.Tensor, List]]:
+        if self.mode == "input":
+            scores = self.per_input_scores(output)
+        elif self.mode == "output":
+            scores = self.per_output_scores(output)
+        elif self.mode == "token":
+            scores = self.per_token_scores(output)
+        else:
+            raise ValueError(f"Unknown mode {self.mode} for {self}")
+
+        scores = {"score": scores}
+
+        return scores
+
 
 class SoftMaxEnergyScorer(SequenceSoftMaxScorerBase):
     """
@@ -266,9 +283,11 @@ class SoftMaxEnergyScorer(SequenceSoftMaxScorerBase):
     ):
         super().__init__(temperature, pad_token_id, mode=mode)
 
+        self.score_names = ["score"]
+
     def per_token_scores(
         self,
-        output: ModelOutput,
+        output: GenerateOutputType,
         num_return_sequences: int = 1,
         num_beam: int = 1,
     ) -> torch.Tensor:
@@ -291,13 +310,17 @@ class SoftMaxEnergyScorer(SequenceSoftMaxScorerBase):
 
     def per_output_scores(
         self,
-        output: ModelOutput,
+        output: GenerateOutputType,
         num_return_sequences: int = 1,
         num_beam: int = 1,
     ) -> torch.Tensor:
         sequences = output.sequences
-        probabilities = self.mk_probability(output.scores)
-        per_step_scores = torch.max(probabilities, dim=-1)
+
+        scores = extract_log_probability_distributions(
+            output,
+        )
+        probabilities = self.mk_probability(scores)
+        per_step_scores, _ = torch.max(probabilities, dim=-1)
 
         return self.aggregate_step_by_step_scores(
             sequences, per_step_scores, num_return_sequences
@@ -328,6 +351,7 @@ class SequenceMSPScorer(SequenceSoftMaxScorerBase):
         mode="input",
     ):
         super().__init__(temperature, pad_token_id, mode=mode)
+        self.score_names = ["score"]
 
     def per_token_scores(
         self,
@@ -345,20 +369,30 @@ class SequenceMSPScorer(SequenceSoftMaxScorerBase):
 
         batch_size = output.sequences.shape[0] // self.num_return_sequences
         sequences = output.sequences
-        probabilities = self.mk_probability(output.scores)
-        per_step_scores = torch.max(probabilities, dim=-1)
+
+        scores = extract_log_probability_distributions(
+            output,
+        )
+
+        probabilities = self.mk_probability(scores)
+
+        per_step_scores, _ = torch.max(probabilities, dim=-1)
 
         return per_step_scores.view(batch_size, num_return_sequences, -1)
 
     def per_output_scores(
         self,
-        output: ModelOutput,
+        output: GenerateOutputType,
         num_return_sequences: int = 1,
         num_beam: int = 1,
     ) -> torch.Tensor:
         sequences = output.sequences
-        probabilities = self.mk_probability(output.scores)
-        per_step_scores = torch.max(probabilities, dim=-1)
+        scores = extract_log_probability_distributions(
+            output,
+        )
+        probabilities = self.mk_probability(scores)
+
+        per_step_scores, _ = torch.max(probabilities, dim=-1)
 
         return self.aggregate_step_by_step_scores(
             sequences, per_step_scores, num_return_sequences

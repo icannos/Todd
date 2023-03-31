@@ -238,11 +238,13 @@ class InformationProjection(SequenceSoftMaxScorerBase):
 
         self.alpha = alpha
         self.score_names = ["score"]
+        self.stored_types_tensor = None
 
     def accumulate(self, output: GenerateOutputType):
         # (batch_size, num_return)
-        per_output_scores = self.per_output_scores(output)
-        self.scores.append(per_output_scores)
+
+        self.batch_size = output.sequences.shape[0] // self.num_return_sequences
+        # [len_gen, batch_size*numreturn, vocab_size]
 
         scores = extract_log_probability_distributions(
             output,
@@ -304,7 +306,10 @@ class InformationProjection(SequenceSoftMaxScorerBase):
 
         pair_wise_information = (
             torch.pow(prob_types[:, None, :], self.alpha)
-            / torch.pow(self.stored_types_tensor[None, :, :], 1 - self.alpha)
+            / torch.pow(
+                self.stored_types_tensor[None, :, :].to(prob_types.get_device()),
+                1 - self.alpha,
+            )
         ).sum(-1)
 
         if self.use_soft_projection:
