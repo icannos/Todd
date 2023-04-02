@@ -11,7 +11,7 @@ from .utils.output_processing import (
     extract_log_probability_distributions,
     GenerateOutputType,
 )
-
+from sklearn import 
 
 class SequenceRenyiNegScorer(SequenceSoftMaxScorerBase):
     """
@@ -462,6 +462,177 @@ class BeamRenyiInformationProjection(SequenceSoftMaxScorerBase):
     def __format__(self, format_spec):
         return (
             f"BeamRenyiInformationProjection(alpha={self.alpha}, "
+            f"use_soft_projection={self.use_soft_projection},"
+            f"n_neighbors={self.n_neighbors},"
+            f"temperature={self.temperature}, "
+            f"mode={self.mode})"
+        )
+
+
+class BeamInformationalLOF(SequenceSoftMaxScorerBase):
+    def __init__(
+        self,
+        alpha: float = 1.5,
+        temperature: float = 2.0,
+        pad_token_id: int = 0,
+        mode="input",
+        use_soft_projection=False,
+        n_neighbors=-1,
+        num_return_sequences: int = 1,
+        num_beams: int = 1,
+    ):
+        super().__init__(temperature, pad_token_id, mode=mode)
+        self.num_beams = num_beams
+        self.num_return_sequences = num_return_sequences
+        self.n_neighbors = n_neighbors
+        self.use_soft_projection = use_soft_projection
+
+        self.alpha = alpha
+        self.score_names = ["score"]
+
+    def per_output_scores(
+        self,
+        output: GenerateOutputType,
+    ) -> torch.Tensor:
+        # Retieve probability distribution over the vocabulary for all sequences
+
+        self.batch_size = output.sequences.shape[0] // self.num_return_sequences
+        # [len_gen, batch_size*numreturn, vocab_size]
+
+        scores = extract_log_probability_distributions(
+            output,
+        )
+
+        probabilities = self.mk_probability(scores)
+        vocab_size = probabilities.shape[-1]
+
+        mask = mask_pad_tokens(output.sequences, probabilities, self.pad_token_id)
+
+        prob_types = (probabilities * mask[:, :, None]).sum(1) / mask.sum(-1)[:, None]
+
+        # [batch_size, numreturn, vocab_size]
+        prob_types = prob_types.view(
+            self.batch_size, self.num_return_sequences, vocab_size
+        )
+
+        dd = self.pair_wise_distances(prob_types)
+        scores = self.lof(dd)
+
+        return scores
+
+    def pair_wise_distances(self, prob_types):
+        numerator = torch.pow(prob_types[:, :, None, :], self.alpha)
+        denominator = torch.pow(prob_types[:, None, :, :] + 1e-20, self.alpha - 1)
+        summation = (numerator / denominator).sum(-1)
+        dd = (1 / (self.alpha - 1)) * torch.log(summation)
+
+        dd += torch.diag(torch.inf * torch.ones(dd.shape[1], device=dd.device))[
+              None, :, :
+              ]
+
+        return dd
+
+    def kdistance(self, dd):
+        # dd : [bs, numreturn, numreturn]
+
+        if self.n_neighbors == -1:
+            n_neighbors = dd.shape[1] - 1
+        else:
+            n_neighbors = self.n_neighbors
+
+
+        # for each sample get the kth nearest neighbor
+        # [bs, numreturn, k]
+        kdistance, _ = torch.topk(dd, k=n_neighbors, dim=-1, largest=False)
+
+        # [bs, numreturn]
+        kdistance = kdistance[..., -1]
+
+        return kdistance
+
+    def reachability_distance(self, dd):
+
+        # dd : [bs, numreturn, numreturn]
+        # [bs, numreturn, numreturn]
+        kdistance = self.kdistance(dd)
+
+        # [bs, numreturn, numreturn]
+        reachability_distance = torch.max(dd, kdistance[:, :, None])
+
+        return reachability_distance
+
+    def lrd(self, dd):
+        # dd : [bs, numreturn, numreturn]
+
+        if self.n_neighbors == -1:
+            n_neighbors = dd.shape[1] - 1
+        else:
+            n_neighbors = self.n_neighbors
+
+        # [bs, numreturn, numreturn]
+        reachability_distance = self.reachability_distance(dd)
+        topk, _ = torch.topk(reachability_distance, k=n_neighbors, dim=-1, largest=False)
+
+        lrd = n_neighbors / (topk.sum(-1) + 1e-20)
+
+        return lrd
+
+    def lof(self, dd):
+        # dd : [bs, numreturn, numreturn]
+
+        if self.n_neighbors == -1:
+            n_neighbors = dd.shape[1] - 1
+        else:
+            n_neighbors = self.n_neighbors
+        # [bs, numreturn]
+        lrd = self.lrd(dd)
+
+        # [bs, numreturn, numreturn]
+        lof = lrd[:, None, :] / lrd[:, :, None]
+
+        # [bs, numreturn]
+        lof = lof.sum(-1) / n_neighbors
+
+        return lof
+
+    def accumulate(self, *args, **kwargs):
+        pass
+
+    def fit(self, *args, **kwargs):
+        pass
+
+    def per_input_scores(
+        self,
+        output: GenerateOutputType,
+    ) -> torch.Tensor:
+
+        per_output_scores = self.per_output_scores(output)
+
+        return per_output_scores.mean(-1)
+
+    def compute_scores_benchmark(
+        self, output: GenerateOutputType
+    ) -> Dict[str, Union[torch.Tensor, List]]:
+
+        if self.mode == "input":
+            scores = self.per_input_scores(output)
+        elif self.mode == "output":
+            scores = self.per_output_scores(output)
+        elif self.mode == "token":
+            raise NotImplementedError("Token mode not implemented for this filter")
+        else:
+            raise ValueError(f"Unknown mode {self.mode} for {self}")
+
+        scores = {"score": scores}
+
+        return scores
+
+    def per_token_scores(self, *args, **kwargs) -> torch.Tensor:
+        raise NotImplementedError("This method makes no sense for this filter")
+
+    def __format__(self, format_spec):
+        return (
+            f"BeamInformationalLOF(alpha={self.alpha}, "
             f"use_soft_projection={self.use_soft_projection},"
             f"n_neighbors={self.n_neighbors},"
             f"temperature={self.temperature}, "
