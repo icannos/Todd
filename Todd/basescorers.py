@@ -316,11 +316,7 @@ class SoftMaxEnergyScorer(SequenceSoftMaxScorerBase):
     ) -> torch.Tensor:
         sequences = output.sequences
 
-        scores = extract_log_probability_distributions(
-            output,
-        )
-        probabilities = self.mk_probability(scores)
-        per_step_scores, _ = torch.max(probabilities, dim=-1)
+        per_step_scores = self.per_token_scores(output, num_return_sequences, num_beam)
 
         return self.aggregate_step_by_step_scores(
             sequences, per_step_scores, num_return_sequences
@@ -390,9 +386,8 @@ class SequenceMSPScorer(SequenceSoftMaxScorerBase):
         scores = extract_log_probability_distributions(
             output,
         )
-        probabilities = self.mk_probability(scores)
 
-        per_step_scores, _ = torch.max(probabilities, dim=-1)
+        per_step_scores = self.per_token_scores(output, num_return_sequences, num_beam)
 
         return self.aggregate_step_by_step_scores(
             sequences, per_step_scores, num_return_sequences

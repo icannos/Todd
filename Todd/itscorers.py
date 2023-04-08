@@ -11,7 +11,7 @@ from .utils.output_processing import (
     extract_log_probability_distributions,
     GenerateOutputType,
 )
-from sklearn import 
+
 
 class SequenceRenyiNegScorer(SequenceSoftMaxScorerBase):
     """
@@ -470,6 +470,11 @@ class BeamRenyiInformationProjection(SequenceSoftMaxScorerBase):
 
 
 class BeamInformationalLOF(SequenceSoftMaxScorerBase):
+    """
+    Compute the Local Outlier Factor of the element in the beam to decide whether the candidate is
+    on the "inside" or "outside" of the beam
+    """
+
     def __init__(
         self,
         alpha: float = 1.5,
@@ -527,8 +532,8 @@ class BeamInformationalLOF(SequenceSoftMaxScorerBase):
         dd = (1 / (self.alpha - 1)) * torch.log(summation)
 
         dd += torch.diag(torch.inf * torch.ones(dd.shape[1], device=dd.device))[
-              None, :, :
-              ]
+            None, :, :
+        ]
 
         return dd
 
@@ -539,7 +544,6 @@ class BeamInformationalLOF(SequenceSoftMaxScorerBase):
             n_neighbors = dd.shape[1] - 1
         else:
             n_neighbors = self.n_neighbors
-
 
         # for each sample get the kth nearest neighbor
         # [bs, numreturn, k]
@@ -571,7 +575,9 @@ class BeamInformationalLOF(SequenceSoftMaxScorerBase):
 
         # [bs, numreturn, numreturn]
         reachability_distance = self.reachability_distance(dd)
-        topk, _ = torch.topk(reachability_distance, k=n_neighbors, dim=-1, largest=False)
+        topk, _ = torch.topk(
+            reachability_distance, k=n_neighbors, dim=-1, largest=False
+        )
 
         lrd = n_neighbors / (topk.sum(-1) + 1e-20)
 
