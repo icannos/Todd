@@ -159,6 +159,141 @@ class SequenceRenyiNegScorer(SequenceSoftMaxScorerBase):
         return f"SequenceRenyiNegScorer(alpha={self.alpha}, temperature={self.temperature}, mode={self.mode})"
 
 
+class SequenceFisherRaoScorer(SequenceSoftMaxScorerBase):
+    """
+    Filters a batch of outputs based on the Renyi entropy of the first sequence returned for each input.
+    """
+
+    def __init__(
+        self,
+        alpha: float = 1.5,
+        temperature: float = 2.0,
+        pad_token_id: int = 0,
+        mode="input",
+        num_return_sequences: int = 1,
+        num_beam: int = 1,
+        batch_size: int = 1,
+    ):
+        super().__init__(temperature, pad_token_id, mode=mode)
+        self.num_beam = num_beam
+        self.num_return_sequences = num_return_sequences
+        self.alpha = alpha
+
+        self.score_names = ["score"]
+
+    def per_token_scores(
+        self,
+        output: GenerateOutputType,
+    ):
+        """
+        :param output: ModelOutput object from huggingface generator. We need the scores and the generated sequences
+        :return: a mask of size (batch_size, 1) where 0 means that the sequence is anomalous
+        """
+        batch_size = output.sequences.shape[0] // self.num_return_sequences
+
+        # (num_gen_tokens, batch_size*numbeam*numreturn, vocab_size)
+
+        # Retrieve probability distribution over the vocabulary for all sequences
+        # We don't keep the first score since it gives information ont the SOS token
+
+        # (num_return_sequences*batch_size, num_gen_tokens, vocab_size)
+        scores = extract_log_probability_distributions(output)
+        probabilities = self.mk_probability(scores)
+
+        # Compute the Fisher-Rao divergence
+
+        per_step_scores = torch.arccos(
+            probabilities.sum(-1) * torch.sqrt(probabilities.shape[-1])
+        )
+        per_step_scores *= 2 / torch.pi
+
+        per_step_scores = per_step_scores.transpose(0, 1)
+        per_step_scores = per_step_scores.reshape(
+            batch_size, self.num_return_sequences, -1
+        )
+
+        per_step_scores = per_step_scores.reshape(
+            batch_size, self.num_return_sequences, -1
+        )
+
+        return per_step_scores
+
+    def per_output_scores(
+        self,
+        output: GenerateOutputType,
+    ) -> torch.Tensor:
+        # (batch_size, 1)
+        # aggregate the scores over the generated tokens
+
+        per_step_scores = self.per_token_scores(output)
+        anomaly_scores = self.aggregate_step_by_step_scores(
+            output.sequences.cpu(),
+            per_step_scores.cpu(),
+            self.num_return_sequences,
+        )
+
+        return anomaly_scores
+
+    def per_input_scores(
+        self,
+        output: GenerateOutputType,
+    ) -> torch.Tensor:
+        # (batch_size, num_return)
+        per_output_scores = self.per_output_scores(output)
+
+        # (batch_size, 1)
+        anomaly_scores = per_output_scores.mean(-1)
+        return anomaly_scores
+
+    def compute_scores_benchmark(
+        self, output: GenerateOutputType
+    ) -> Dict[str, Union[torch.Tensor, List]]:
+        """
+        Compute the Mahalanobis distance of the first sequence returned for each input.
+        :param output: output of the model
+        :return: (*,) tensor of Mahalanobis distances
+        """
+
+        self.batch_size = output.sequences.shape[0] // self.num_return_sequences
+
+        if self.mode == "input":
+            scores = self.per_input_scores(output)
+        elif self.mode == "output":
+            scores = self.per_output_scores(output)
+        elif self.mode == "token":
+            scores = self.per_token_scores(output)
+            scores = scores.reshape(self.batch_size * self.num_return_sequences, -1)
+            # build mask
+            mask = mask_pad_tokens(output.sequences, scores, self.pad_token_id)
+            # Transform scores into list of variable length
+
+            seq_lengths = mask.sum(-1)
+
+            scores = scores.view(self.batch_size, self.num_return_sequences, -1)
+            _scores = []
+
+            for i in range(self.batch_size):
+                _scores.append(
+                    [
+                        scores[
+                            i, j, : seq_lengths[i * self.num_return_sequences + j]
+                        ].tolist()
+                        for j in range(self.num_return_sequences)
+                    ]
+                )
+            scores = _scores
+
+        else:
+            raise ValueError(f"Unknown mode {self.mode} for {self}")
+
+        scores = {"score": scores}
+
+        return scores
+
+    def __format__(self, format_spec):
+        return f"{self.__class__.__name__}(alpha={self.alpha}, temperature={self.temperature}, mode={self.mode})"
+
+
 class SequenceRenyiNegDataFittedScorer(SequenceRenyiNegScorer):
     def __init__(self, *args, reference_vocab_distribution, **kwargs):
         """
