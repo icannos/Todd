@@ -1,5 +1,6 @@
 from typing import Dict, List, Union
 
+import numpy as np
 import torch
 
 from .basescorers import (
@@ -203,7 +204,7 @@ class SequenceFisherRaoScorer(SequenceSoftMaxScorerBase):
         # Compute the Fisher-Rao divergence
 
         per_step_scores = torch.arccos(
-            probabilities.sum(-1) * torch.sqrt(probabilities.shape[-1])
+            probabilities.sum(-1) * np.sqrt(probabilities.shape[-1])
         )
         per_step_scores *= 2 / torch.pi
 
