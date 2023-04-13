@@ -93,7 +93,6 @@ ScorerType = TypeVar("ScorerType", bound=Scorer)
 class HiddenStateBasedScorers(Scorer):
     def __init__(self, kwargs):
         """
-        :param chosen_state: name of the state to use for the computation of the scores.
         Can be encoder_hidden_states or decoder_hidden_states
         """
         super().__init__()
@@ -277,7 +276,7 @@ class SoftMaxEnergyScorer(SequenceSoftMaxScorerBase):
 
     def __init__(
         self,
-        temperature: float = 2.0,
+        temperature: float = 1.0,
         pad_token_id: int = 0,
         num_return_sequences: int = 1,
         num_beams: int = 1,
@@ -301,7 +300,7 @@ class SoftMaxEnergyScorer(SequenceSoftMaxScorerBase):
 
         batch_size = output.sequences.shape[0] // self.num_return_sequences
 
-        scores = extract_log_probability_distributions(output.scores)
+        scores = extract_log_probability_distributions(output)
 
         scores = -self.temperature * torch.exp(scores / self.temperature).sum(-1)
 
@@ -310,15 +309,13 @@ class SoftMaxEnergyScorer(SequenceSoftMaxScorerBase):
     def per_output_scores(
         self,
         output: GenerateOutputType,
-        num_return_sequences: int = 1,
-        num_beam: int = 1,
     ) -> torch.Tensor:
         sequences = output.sequences
 
         per_step_scores = self.per_token_scores(output)
 
         return self.aggregate_step_by_step_scores(
-            sequences, per_step_scores, num_return_sequences
+            sequences, per_step_scores, self.num_return_sequences
         )
 
     def per_input_scores(
@@ -327,7 +324,7 @@ class SoftMaxEnergyScorer(SequenceSoftMaxScorerBase):
         num_return_sequences: int = 1,
         num_beam: int = 1,
     ) -> torch.Tensor:
-        return self.per_output_scores(output, num_return_sequences, num_beam)[:, 0]
+        return self.per_output_scores(output)[:, 0]
 
     def __format__(self, format_spec):
         return f"{self.__class__.__name__}(mode={self.mode}, temperature={self.temperature}, mode={self.mode})"
@@ -341,7 +338,7 @@ class SequenceMSPScorer(SequenceSoftMaxScorerBase):
 
     def __init__(
         self,
-        temperature: float = 2.0,
+        temperature: float = 1.0,
         num_return_sequences: int = 1,
         num_beams: int = 1,
         pad_token_id: int = 0,
@@ -390,7 +387,7 @@ class SequenceMSPScorer(SequenceSoftMaxScorerBase):
 
     def per_input_scores(
         self,
-        output: ModelOutput,
+        output: GenerateOutputType,
     ) -> torch.Tensor:
         return self.per_output_scores(
             output,
