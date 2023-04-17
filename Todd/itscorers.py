@@ -204,7 +204,7 @@ class SequenceFisherRaoScorer(SequenceSoftMaxScorerBase):
         # Compute the Fisher-Rao divergence
 
         per_step_scores = torch.arccos(
-            probabilities.sum(-1) * np.sqrt(probabilities.shape[-1])
+            torch.clamp(probabilities.sum(-1) * np.sqrt(probabilities.shape[-1]), -1, 1)
         )
         per_step_scores *= 2 / torch.pi
 

@@ -45,6 +45,9 @@ def mean_score_remove_padding(
 
     mask = mask_pad_tokens(sequences, scores, pad_token_id)
 
+    if mask.shape[1] != scores.shape[1]:
+        scores = scores[:, -mask.shape[1] :]
+
     return ((scores * mask.float()).sum(dim=-1) / mask.sum(dim=-1).float()).squeeze()
 
 
