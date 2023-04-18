@@ -497,6 +497,32 @@ class BeamRenyiInformationProjection(SequenceSoftMaxScorerBase):
         self.alpha = alpha
         self.score_names = ["score"]
 
+    def output_pair_wise_distance(self, output: GenerateOutputType) -> torch.Tensor:
+        self.batch_size = output.sequences.shape[0] // self.num_return_sequences
+        # [len_gen, batch_size*numreturn, vocab_size]
+
+        scores = extract_log_probability_distributions(
+            output,
+        )
+
+        probabilities = self.mk_probability(scores)
+        vocab_size = probabilities.shape[-1]
+
+        mask = mask_pad_tokens(output.sequences, probabilities, self.pad_token_id)
+
+        prob_types = (probabilities * mask[:, :, None]).sum(1) / mask.sum(-1)[:, None]
+
+        # [batch_size, numreturn, vocab_size]
+        prob_types = prob_types.view(
+            self.batch_size, self.num_return_sequences, vocab_size
+        )
+
+        # [batch_size, numreturn]
+        _, dd = self.projection_function(prob_types)
+
+        dd = dd.cpu()
+        return dd
+
     def per_output_scores(
         self,
         output: GenerateOutputType,
@@ -523,7 +549,7 @@ class BeamRenyiInformationProjection(SequenceSoftMaxScorerBase):
         )
 
         # [batch_size, numreturn]
-        scores = self.projection_function(prob_types).cpu()
+        scores = self.projection_function(prob_types)[0].cpu()
 
         return scores
 
@@ -558,7 +584,7 @@ class BeamRenyiInformationProjection(SequenceSoftMaxScorerBase):
             # We just take the divergence with the closest neighbor
             scores, _ = dd.min(dim=2)
 
-        return scores
+        return scores, dd
 
     def accumulate(self, *args, **kwargs):
         pass
