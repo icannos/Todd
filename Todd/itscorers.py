@@ -82,7 +82,7 @@ class SequenceRenyiNegScorer(SequenceSoftMaxScorerBase):
             batch_size, self.num_return_sequences, -1
         )
 
-        return per_step_scores
+        return per_step_scores.detach().cpu()
 
     def per_output_scores(
         self,
@@ -217,7 +217,7 @@ class SequenceFisherRaoScorer(SequenceSoftMaxScorerBase):
             batch_size, self.num_return_sequences, -1
         )
 
-        return per_step_scores
+        return per_step_scores.detach().cpu()
 
     def per_output_scores(
         self,
