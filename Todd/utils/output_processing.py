@@ -33,9 +33,11 @@ def extract_log_probability_distributions(
     Shape: (num_return_sequences, sequence_length, vocab_size)
     """
 
-    scores = output.scores
-    sequences = output.sequences
-    beam_indices = output.beam_indices if hasattr(output, "beam_indices") else None
+    scores = [s.cpu() for s in output.scores]
+    sequences = output.sequences.cpu()
+    beam_indices = (
+        output.beam_indices.cpu() if hasattr(output, "beam_indices") else None
+    )
 
     # 1. In absence of `beam_indices`, we can assume that we come from e.g. greedy search, which is equivalent
     # to a beam search approach were the first (and only) beam is always selected
