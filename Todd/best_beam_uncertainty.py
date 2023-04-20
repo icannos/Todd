@@ -93,7 +93,7 @@ class BestBeamSeqRenyi(SequenceSoftMaxScorerBase):
         per_step_scores = self.per_token_scores(output)
         anomaly_scores = self.aggregate_step_by_step_scores(
             output.sequences.cpu(),
-            per_step_scores.cpu(),
+            per_step_scores.float().cpu(),
             self.num_return_sequences,
         )
 
@@ -228,7 +228,7 @@ class BestBeamSeqFisherRao(SequenceSoftMaxScorerBase):
         per_step_scores = self.per_token_scores(output)
         anomaly_scores = self.aggregate_step_by_step_scores(
             output.sequences.cpu(),
-            per_step_scores.cpu(),
+            per_step_scores.float().cpu(),
             self.num_return_sequences,
         )
 
@@ -465,7 +465,7 @@ class BestBeamInformationProjection(SequenceSoftMaxScorerBase):
             self.batch_size, self.num_return_sequences, vocab_size
         )[:, 0, :]
 
-        self.stored_types.append(prob_types.detach().cpu())
+        self.stored_types.append(prob_types.detach().float().cpu())
 
     def fit(self, *args, **kwargs):
         self.stored_types_tensor = torch.cat(self.stored_types, 0)
@@ -498,7 +498,7 @@ class BestBeamInformationProjection(SequenceSoftMaxScorerBase):
         )
 
         # [batch_size, numreturn]
-        scores = self.projection_function(prob_types).cpu()
+        scores = self.projection_function(prob_types).float().cpu()
         scores = scores.view(self.batch_size, self.num_return_sequences)
 
         return scores

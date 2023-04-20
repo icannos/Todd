@@ -97,11 +97,7 @@ class MahalanobisScorer(HiddenStateBasedScorers):
         scores: Dict[Tuple[int, int], torch.Tensor] = {}
 
         # TODO: Will not work for decoder only models
-        batch_size = (
-            output.encoder_hidden_states[0].shape[0]
-            if "encoder_hidden_states" in output.keys()
-            else None
-        )
+        batch_size = output.sequence.shape[0]
 
         for layer, cl in self.means.keys():
             hidden_state = extract_hidden_state(output, self.chosen_state, layer)
@@ -125,9 +121,9 @@ class MahalanobisScorer(HiddenStateBasedScorers):
 
             # Take max per input # TODO: choice of aggregator
             if batch_size:
-                scores[(layer, cl)] = m.view(batch_size, -1).max(dim=1)[0].cpu()
+                scores[(layer, cl)] = m.view(batch_size, -1).max(dim=1)[0].float().cpu()
             else:
-                scores[(layer, cl)] = m.cpu()
+                scores[(layer, cl)] = m.float().cpu()
 
         return scores
 
@@ -249,15 +245,15 @@ class CosineProjectionScorer(HiddenStateBasedScorers):
 
             # We take the max so it's an OOD score: larger => more OOD
             # The max corresponds to the closest reference embedding, so the smallest distance to the distribution
-            tmp_scores = -cosine_scores.max(dim=1)[0].cpu()
+            tmp_scores = -cosine_scores.max(dim=1)[0].float().cpu()
 
             # Max over beams
             if batch_size:
                 scores[(layer, cl)] = (
-                    tmp_scores.view(batch_size, -1).max(dim=1)[0].cpu()
+                    tmp_scores.view(batch_size, -1).max(dim=1)[0].float().cpu()
                 )
             else:
-                scores[(layer, cl)] = tmp_scores.cpu()
+                scores[(layer, cl)] = tmp_scores.float().cpu()
 
         return scores
 
@@ -346,7 +342,9 @@ class DataDepthScorer(HiddenStateBasedScorers):
 
         # To numpy:
         for key, ref_list in self.accumulated_embeddings.items():
-            self.accumulated_embeddings[key] = torch.stack(ref_list).cpu().numpy()
+            self.accumulated_embeddings[key] = (
+                torch.stack(ref_list).float().cpu().numpy()
+            )
 
         self.score_names = [
             f"layer_{layer}_class_{cl}"

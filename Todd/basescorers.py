@@ -141,11 +141,13 @@ class HiddenStateBasedScorers(Scorer):
 
             # Append the embeddings to the list of embeddings for the layer
             if y is None:
-                self.accumulated_embeddings[(layer, 0)].extend(emb.detach().cpu())
+                self.accumulated_embeddings[(layer, 0)].extend(
+                    emb.detach().float().cpu()
+                )
             else:
                 for i in range(emb.shape[0]):
                     self.accumulated_embeddings[(layer, int(y[i]))].append(
-                        emb[i].detach().cpu()
+                        emb[i].detach().float().cpu()
                     )
 
 

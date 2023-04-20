@@ -33,7 +33,7 @@ def extract_log_probability_distributions(
     Shape: (num_return_sequences, sequence_length, vocab_size)
     """
 
-    scores = [s.cpu() for s in output.scores]
+    scores = [s.float().cpu() for s in output.scores]
     sequences = output.sequences.cpu()
     beam_indices = (
         output.beam_indices.cpu() if hasattr(output, "beam_indices") else None
@@ -69,7 +69,7 @@ def extract_log_probability_distributions(
 
     transition_scores = torch.gather(scores, dim=0, index=beam_indices)
 
-    return transition_scores
+    return transition_scores.to("cuda")
 
 
 def extract_decoder_hidden_states(
@@ -126,6 +126,7 @@ def extract_decoder_hidden_states(
 
 
 def extract_hidden_state(output, chosen_state, hidden_layer_idx=-1):
-    if chosen_state == "encoder_hidden_states":
+    if chosen_state == "encoder_hidden_states" and "encoder_hidden_states" in output:
         return output["encoder_hidden_states"][hidden_layer_idx]
+
     return extract_decoder_hidden_states(output, hidden_layer_idx=hidden_layer_idx)

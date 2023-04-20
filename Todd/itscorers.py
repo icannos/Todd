@@ -82,7 +82,7 @@ class SequenceRenyiNegScorer(SequenceSoftMaxScorerBase):
             batch_size, self.num_return_sequences, -1
         )
 
-        return per_step_scores.detach().cpu()
+        return per_step_scores.detach().float().cpu()
 
     def per_output_scores(
         self,
@@ -94,7 +94,7 @@ class SequenceRenyiNegScorer(SequenceSoftMaxScorerBase):
         per_step_scores = self.per_token_scores(output)
         anomaly_scores = self.aggregate_step_by_step_scores(
             output.sequences.cpu(),
-            per_step_scores.cpu(),
+            per_step_scores.float().cpu(),
             self.num_return_sequences,
         )
 
@@ -217,7 +217,7 @@ class SequenceFisherRaoScorer(SequenceSoftMaxScorerBase):
             batch_size, self.num_return_sequences, -1
         )
 
-        return per_step_scores.detach().cpu()
+        return per_step_scores.detach().float().cpu()
 
     def per_output_scores(
         self,
@@ -229,7 +229,7 @@ class SequenceFisherRaoScorer(SequenceSoftMaxScorerBase):
         per_step_scores = self.per_token_scores(output)
         anomaly_scores = self.aggregate_step_by_step_scores(
             output.sequences.cpu(),
-            per_step_scores.cpu(),
+            per_step_scores.float().cpu(),
             self.num_return_sequences,
         )
 
@@ -342,6 +342,7 @@ class SequenceRenyiNegDataFittedScorer(SequenceRenyiNegScorer):
         per_step_scores = (
             torch.nan_to_num(self._renyi_div(Y), posinf=10000, neginf=-10000)
             .view(batch_size, self.num_return_sequences, -1)
+            .float()
             .cpu()
         )
 
@@ -398,7 +399,7 @@ class InformationProjection(SequenceSoftMaxScorerBase):
             self.batch_size, self.num_return_sequences, vocab_size
         )[:, 0, :]
 
-        self.stored_types.append(prob_types.detach().cpu())
+        self.stored_types.append(prob_types.detach().float().cpu())
 
     def fit(self, *args, **kwargs):
         self.stored_types_tensor = torch.cat(self.stored_types, 0)
@@ -433,7 +434,7 @@ class InformationProjection(SequenceSoftMaxScorerBase):
         )
 
         # [batch_size, numreturn]
-        scores = self.projection_function(prob_types).cpu()
+        scores = self.projection_function(prob_types).float().cpu()
         scores = scores.view(self.batch_size, self.num_return_sequences)
 
         return scores
@@ -520,7 +521,8 @@ class BeamRenyiInformationProjection(SequenceSoftMaxScorerBase):
         # [batch_size, numreturn]
         _, dd = self.projection_function(prob_types)
 
-        dd = dd.cpu()
+        dd = dd.float().cpu()
+
         return dd
 
     def per_output_scores(
@@ -549,7 +551,7 @@ class BeamRenyiInformationProjection(SequenceSoftMaxScorerBase):
         )
 
         # [batch_size, numreturn]
-        scores = self.projection_function(prob_types)[0].cpu()
+        scores = self.projection_function(prob_types)[0].float().cpu()
 
         return scores
 
