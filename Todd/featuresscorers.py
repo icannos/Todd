@@ -97,7 +97,12 @@ class MahalanobisScorer(HiddenStateBasedScorers):
         scores: Dict[Tuple[int, int], torch.Tensor] = {}
 
         # TODO: Will not work for decoder only models
-        batch_size = output.sequence.shape[0]
+
+        batch_size = (
+            output.encoder_hidden_states[0].shape[0]
+            if "encoder_hidden_states" in output.keys()
+            else None
+        )
 
         for layer, cl in self.means.keys():
             hidden_state = extract_hidden_state(output, self.chosen_state, layer)
@@ -382,7 +387,7 @@ class DataDepthScorer(HiddenStateBasedScorers):
 
             m = self.data_depth.compute_depths(
                 X=self.accumulated_embeddings[(layer, cl)],
-                X_test=emb.cpu().numpy(),
+                X_test=emb.float().cpu().numpy(),
                 depth_choice=self.depth_choice,
             )
 

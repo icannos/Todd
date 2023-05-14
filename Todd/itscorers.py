@@ -82,7 +82,7 @@ class SequenceRenyiNegScorer(SequenceSoftMaxScorerBase):
             batch_size, self.num_return_sequences, -1
         )
 
-        return per_step_scores.detach().float().cpu()
+        return per_step_scores.detach()
 
     def per_output_scores(
         self,
@@ -93,8 +93,8 @@ class SequenceRenyiNegScorer(SequenceSoftMaxScorerBase):
 
         per_step_scores = self.per_token_scores(output)
         anomaly_scores = self.aggregate_step_by_step_scores(
-            output.sequences.cpu(),
-            per_step_scores.float().cpu(),
+            output.sequences,
+            per_step_scores,
             self.num_return_sequences,
         )
 
@@ -217,7 +217,7 @@ class SequenceFisherRaoScorer(SequenceSoftMaxScorerBase):
             batch_size, self.num_return_sequences, -1
         )
 
-        return per_step_scores.detach().float().cpu()
+        return per_step_scores.detach()
 
     def per_output_scores(
         self,
@@ -228,8 +228,8 @@ class SequenceFisherRaoScorer(SequenceSoftMaxScorerBase):
 
         per_step_scores = self.per_token_scores(output)
         anomaly_scores = self.aggregate_step_by_step_scores(
-            output.sequences.cpu(),
-            per_step_scores.float().cpu(),
+            output.sequences,
+            per_step_scores,
             self.num_return_sequences,
         )
 
@@ -339,12 +339,9 @@ class SequenceRenyiNegDataFittedScorer(SequenceRenyiNegScorer):
         Y = probabilities.view(-1, probabilities.shape[2])
 
         # Maybe best to ignore pad and special tokens
-        per_step_scores = (
-            torch.nan_to_num(self._renyi_div(Y), posinf=10000, neginf=-10000)
-            .view(batch_size, self.num_return_sequences, -1)
-            .float()
-            .cpu()
-        )
+        per_step_scores = torch.nan_to_num(
+            self._renyi_div(Y), posinf=10000, neginf=-10000
+        ).view(batch_size, self.num_return_sequences, -1)
 
         return per_step_scores
 
@@ -542,6 +539,7 @@ class BeamRenyiInformationProjection(SequenceSoftMaxScorerBase):
         vocab_size = probabilities.shape[-1]
 
         mask = mask_pad_tokens(output.sequences, probabilities, self.pad_token_id)
+        mask = mask.to(probabilities.device)
 
         prob_types = (probabilities * mask[:, :, None]).sum(1) / mask.sum(-1)[:, None]
 
@@ -558,10 +556,17 @@ class BeamRenyiInformationProjection(SequenceSoftMaxScorerBase):
     def projection_function(self, prob_types):
         # Returns the pair a pair divergence between types of the sequence in the beam
         # Broadcasting is used to do it in one line
-        numerator = torch.pow(prob_types[:, :, None, :], self.alpha)
-        denominator = torch.pow(prob_types[:, None, :, :] + 1e-20, self.alpha - 1)
-        summation = (numerator / denominator).sum(-1)
-        dd = (1 / (self.alpha - 1)) * torch.log(summation)
+
+        if self.alpha != 1.0:
+            numerator = torch.pow(prob_types[:, :, None, :], self.alpha)
+            denominator = torch.pow(prob_types[:, None, :, :] + 1e-20, self.alpha - 1)
+            summation = (numerator / denominator).sum(-1)
+            dd = (1 / (self.alpha - 1)) * torch.log(summation)
+
+        else:
+            numerator = prob_types[:, :, None, :]
+            denominator = torch.pow(prob_types[:, None, :, :] + 1e-8, -1)
+            dd = torch.xlogy(numerator, denominator).sum(-1)
 
         # We are interested in the projection of each elemen onto the set of other elements
         # Obviously the min would be 0 on the diagonal since the projection of an element onto itself is 0
@@ -626,6 +631,163 @@ class BeamRenyiInformationProjection(SequenceSoftMaxScorerBase):
     def __format__(self, format_spec):
         return (
             f"BeamRenyiInformationProjection(alpha={self.alpha}, "
+            f"use_soft_projection={self.use_soft_projection},"
+            f"n_neighbors={self.n_neighbors},"
+            f"temperature={self.temperature}, "
+            f"mode={self.mode})"
+        )
+
+
+class BeamFraoInformationProjection(SequenceSoftMaxScorerBase):
+    def __init__(
+        self,
+        temperature: float = 2.0,
+        pad_token_id: int = 0,
+        mode="input",
+        use_soft_projection=False,
+        n_neighbors=-1,
+        num_return_sequences: int = 1,
+        num_beams: int = 1,
+    ):
+        super().__init__(temperature, pad_token_id, mode=mode)
+        self.num_beams = num_beams
+        self.num_return_sequences = num_return_sequences
+        self.n_neighbors = n_neighbors
+        self.use_soft_projection = use_soft_projection
+
+        self.score_names = ["score"]
+
+    def output_pair_wise_distance(self, output: GenerateOutputType) -> torch.Tensor:
+        self.batch_size = output.sequences.shape[0] // self.num_return_sequences
+        # [len_gen, batch_size*numreturn, vocab_size]
+
+        scores = extract_log_probability_distributions(
+            output,
+        )
+
+        probabilities = self.mk_probability(scores)
+        vocab_size = probabilities.shape[-1]
+
+        mask = mask_pad_tokens(output.sequences, probabilities, self.pad_token_id)
+
+        prob_types = (probabilities * mask[:, :, None]).sum(1) / mask.sum(-1)[:, None]
+
+        # [batch_size, numreturn, vocab_size]
+        prob_types = prob_types.view(
+            self.batch_size, self.num_return_sequences, vocab_size
+        )
+
+        # [batch_size, numreturn]
+        _, dd = self.projection_function(prob_types)
+
+        dd = dd.float().cpu()
+
+        return dd
+
+    def per_output_scores(
+        self,
+        output: GenerateOutputType,
+    ) -> torch.Tensor:
+        # Retieve probability distribution over the vocabulary for all sequences
+
+        self.batch_size = output.sequences.shape[0] // self.num_return_sequences
+        # [len_gen, batch_size*numreturn, vocab_size]
+
+        scores = extract_log_probability_distributions(
+            output,
+        )
+
+        probabilities = self.mk_probability(scores)
+        vocab_size = probabilities.shape[-1]
+
+        mask = mask_pad_tokens(output.sequences, probabilities, self.pad_token_id)
+        mask = mask.to(probabilities.device)
+
+        prob_types = (probabilities * mask[:, :, None]).sum(1) / mask.sum(-1)[:, None]
+
+        # [batch_size, numreturn, vocab_size]
+        prob_types = prob_types.view(
+            self.batch_size, self.num_return_sequences, vocab_size
+        )
+
+        # [batch_size, numreturn]
+        scores = self.projection_function(prob_types)[0].float().cpu()
+
+        return scores
+
+    def projection_function(self, prob_types):
+        # Returns the pair a pair divergence between types of the sequence in the beam
+        # Broadcasting is used to do it in one line
+        dd = torch.clamp(
+            torch.sqrt(prob_types[:, :, None, :] * prob_types[:, None, :, :]).sum(-1),
+            -1,
+            1,
+        )
+        dd = 2 * torch.acos(dd)
+
+        # We are interested in the projection of each elemen onto the set of other elements
+        # Obviously the min would be 0 on the diagonal since the projection of an element onto itself is 0
+        # So we set it to inf to avoid it
+
+        dd += torch.diag(torch.inf * torch.ones(dd.shape[1], device=dd.device))[
+            None, :, :
+        ]
+
+        if self.use_soft_projection:
+            # We use the soft projection
+            # We compute the mean divergence of the n_neighbors nearest neighbors of each element
+            if self.n_neighbors == -1:
+                n_neighbors = dd.shape[1] - 1
+            else:
+                n_neighbors = self.n_neighbors
+
+            scores, _ = torch.topk(dd, k=n_neighbors, dim=-1, largest=False)
+            scores = scores.mean(-1)
+        else:
+            # Otherwise we use the hard projection
+            # We just take the divergence with the closest neighbor
+            scores, _ = dd.min(dim=2)
+
+        return scores, dd
+
+    def accumulate(self, *args, **kwargs):
+        pass
+
+    def fit(self, *args, **kwargs):
+        pass
+
+    def per_input_scores(
+        self,
+        output: GenerateOutputType,
+    ) -> torch.Tensor:
+
+        per_output_scores = self.per_output_scores(output)
+
+        return per_output_scores.mean(-1)
+
+    def compute_scores_benchmark(
+        self, output: GenerateOutputType
+    ) -> Dict[str, Union[torch.Tensor, List]]:
+
+        if self.mode == "input":
+            scores = self.per_input_scores(output)
+        elif self.mode == "output":
+            scores = self.per_output_scores(output)
+        elif self.mode == "token":
+            raise NotImplementedError("Token mode not implemented for this filter")
+        else:
+            raise ValueError(f"Unknown mode {self.mode} for {self}")
+
+        scores = {"score": scores}
+
+        return scores
+
+    def per_token_scores(self, *args, **kwargs) -> torch.Tensor:
+        raise NotImplementedError("This method makes no sense for this filter")
+
+    def __format__(self, format_spec):
+        return (
+            f"BeamFraoInformationProjection("
             f"use_soft_projection={self.use_soft_projection},"
             f"n_neighbors={self.n_neighbors},"
             f"temperature={self.temperature}, "
