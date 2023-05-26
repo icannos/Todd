@@ -1,4 +1,4 @@
-from typing import Dict, List, Union
+from typing import Dict, List, Union, Tuple
 
 import numpy as np
 import torch
@@ -485,12 +485,14 @@ class BeamRenyiInformationProjection(SequenceSoftMaxScorerBase):
         n_neighbors=-1,
         num_return_sequences: int = 1,
         num_beams: int = 1,
+        uniform_sampling=True,
     ):
         super().__init__(temperature, pad_token_id, mode=mode)
         self.num_beams = num_beams
         self.num_return_sequences = num_return_sequences
         self.n_neighbors = n_neighbors
         self.use_soft_projection = use_soft_projection
+        self.uniform_sampling = uniform_sampling
 
         self.alpha = alpha
         self.score_names = ["score"]
@@ -553,7 +555,9 @@ class BeamRenyiInformationProjection(SequenceSoftMaxScorerBase):
 
         return scores
 
-    def projection_function(self, prob_types):
+    def projection_function(
+        self, prob_types, sentence_probabilities=None
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         # Returns the pair a pair divergence between types of the sequence in the beam
         # Broadcasting is used to do it in one line
 
@@ -584,8 +588,14 @@ class BeamRenyiInformationProjection(SequenceSoftMaxScorerBase):
             else:
                 n_neighbors = self.n_neighbors
 
-            scores, _ = torch.topk(dd, k=n_neighbors, dim=-1, largest=False)
-            scores = scores.mean(-1)
+            scores, indices = torch.topk(dd, k=n_neighbors, dim=-1, largest=False)
+
+            if self.uniform_sampling:
+                scores = scores.mean(-1)
+            else:
+                scores = (
+                    torch.exp(sentence_probabilities[indices][:, :, None]) * scores
+                ).sum(-1) / torch.exp(sentence_probabilities).sum(-1)
         else:
             # Otherwise we use the hard projection
             # We just take the divergence with the closest neighbor
